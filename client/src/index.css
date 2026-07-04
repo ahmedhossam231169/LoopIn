@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-ink-950 text-mist-100 font-sans antialiased;
+  }
+}
+
+@layer components {
+  /* الأزرار الأساسية — نفس ستايل الـ mockups */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-lg bg-brand-500 px-5 py-2.5
+           font-semibold text-white transition-colors hover:bg-brand-600
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+           focus-visible:outline-brand-400;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 rounded-lg border border-ink-700 px-5 py-2.5
+           font-semibold text-mist-100 transition-colors hover:bg-ink-800
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+           focus-visible:outline-brand-400;
+  }
+  .card {
+    @apply rounded-xl border border-ink-700 bg-ink-800 p-6;
+  }
+  .input-field {
+    @apply w-full rounded-lg border border-ink-700 bg-ink-900 px-4 py-2.5 text-mist-100
+           placeholder:text-mist-600 focus:border-brand-500 focus:outline-none;
+  }
+}

@@ -1,0 +1,196 @@
+import { Router } from "express";
+import { prisma } from "../lib/prisma.js";
+import { Errors } from "../lib/errors.js";
+import { asyncHandler } from "../middleware/errorHandler.js";
+import { requireAuth } from "../middleware/auth.js";
+import { createCommunitySchema } from "../schemas/communities.js";
+import { notify } from "../lib/notify.js";
+
+export const communitiesRouter = Router();
+
+// "React Masters" → "react-masters" — وبنضيف رقم لو الاسم متكرر
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+async function uniqueSlug(base: string): Promise<string> {
+  let slug = base || "community";
+  let i = 1;
+  while (await prisma.community.findFirst({ where: { slug }, select: { id: true } })) {
+    slug = `${base}-${++i}`;
+  }
+  return slug;
+}
+
+const memberPreviewSelect = {
+  select: {
+    userId: true,
+    role: true,
+    user: { select: { username: true, profile: { select: { displayName: true, avatarUrl: true } } } },
+  },
+} as const;
+
+// ---------------------------------------------------------------
+// GET /api/communities — قايمة (فلترة بالـ category اختيارية)
+// ---------------------------------------------------------------
+communitiesRouter.get(
+  "/",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const category = typeof req.query.category === "string" ? req.query.category : undefined;
+    const userId = req.user!.userId;
+
+    const communities = await prisma.community.findMany({
+      where: category ? { category } : {},
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        category: true,
+        createdAt: true,
+        members: { select: { userId: true } },
+      },
+    });
+
+    const shaped = communities.map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      description: c.description,
+      category: c.category,
+      memberCount: c.members.length,
+      joinedByMe: c.members.some((m: any) => m.userId === userId),
+    }));
+
+    res.json({ ok: true, communities: shaped });
+  })
+);
+
+// ---------------------------------------------------------------
+// POST /api/communities — إنشاء مجتمع جديد (المنشئ بيبقى ADMIN تلقائيًا)
+// ---------------------------------------------------------------
+communitiesRouter.post(
+  "/",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const input = createCommunitySchema.parse(req.body);
+    const slug = await uniqueSlug(slugify(input.name));
+
+    const community = await prisma.community.create({
+      data: {
+        name: input.name,
+        slug,
+        description: input.description ?? null,
+        category: input.category,
+        members: { create: [{ userId: req.user!.userId, role: "ADMIN" }] },
+      },
+      select: { id: true, name: true, slug: true, description: true, category: true },
+    });
+
+    res.status(201).json({ ok: true, community });
+  })
+);
+
+// ---------------------------------------------------------------
+// GET /api/communities/:slug — تفاصيل + preview لأول 5 أعضاء
+// ---------------------------------------------------------------
+communitiesRouter.get(
+  "/:slug",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.userId;
+    const community = await prisma.community.findFirst({
+      where: { slug: req.params.slug! },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        category: true,
+        createdAt: true,
+        members: memberPreviewSelect,
+      },
+    });
+    if (!community) throw Errors.notFound("Community");
+
+    const { members, ...rest } = community as any;
+    res.json({
+      ok: true,
+      community: {
+        ...rest,
+        memberCount: members.length,
+        joinedByMe: members.some((m: any) => m.userId === userId),
+        memberPreview: members.slice(0, 5).map((m: any) => ({
+          username: m.user.username,
+          displayName: m.user.profile?.displayName ?? m.user.username,
+          avatarUrl: m.user.profile?.avatarUrl ?? null,
+          role: m.role,
+        })),
+      },
+    });
+  })
+);
+
+// ---------------------------------------------------------------
+// POST /api/communities/:slug/join — toggle: انضمام لو مش عضو، خروج لو عضو
+// ---------------------------------------------------------------
+communitiesRouter.post(
+  "/:slug/join",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.userId;
+    const community = await prisma.community.findFirst({
+      where: { slug: req.params.slug! },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!community) throw Errors.notFound("Community");
+
+    const existing = await prisma.communityMember.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId } },
+    });
+
+    if (existing) {
+      // آخر admin ما يقدرش يسيب المجتمع من غير ما يسلّم الإدارة لحد تاني (تبسيط: نمنعه لو هو الوحيد)
+      if (existing.role === "ADMIN") {
+        const adminCount = await prisma.communityMember.count({
+          where: { communityId: community.id, role: "ADMIN" },
+        });
+        if (adminCount <= 1) {
+          throw Errors.badRequest("You're the only admin — promote someone else before leaving");
+        }
+      }
+      await prisma.communityMember.delete({
+        where: { communityId_userId: { communityId: community.id, userId } },
+      });
+      const memberCount = await prisma.communityMember.count({ where: { communityId: community.id } });
+      return res.json({ ok: true, joined: false, memberCount });
+    }
+
+    await prisma.communityMember.create({ data: { communityId: community.id, userId } });
+    const memberCount = await prisma.communityMember.count({ where: { communityId: community.id } });
+
+    // نبلّغ الـ admins بس (مش كل الأعضاء) إن عضو جديد انضم
+    const admins = await prisma.communityMember.findMany({
+      where: { communityId: community.id, role: "ADMIN" },
+      select: { userId: true },
+    });
+    const joiner = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+    for (const admin of admins) {
+      await notify({
+        userId: admin.userId,
+        actorId: userId,
+        type: "COMMUNITY_JOIN",
+        message: `@${joiner?.username} joined ${community.name}`,
+        link: `/communities/${community.slug}`,
+      });
+    }
+
+    res.json({ ok: true, joined: true, memberCount });
+  })
+);

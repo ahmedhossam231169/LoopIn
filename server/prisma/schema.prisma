@@ -1,0 +1,229 @@
+// DevConnect — Database Schema (Phase 1)
+// المرحلة الأولى: Users + Profiles + Posts + Code Snippets
+// الشات والـ Communities هيتضافوا في مراحل لاحقة على نفس الـ schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+// ده أساس فلتر الـ HR: نوع الحساب بيتحدد من أول التسجيل
+enum Role {
+  DEVELOPER
+  RECRUITER
+}
+
+enum Availability {
+  OPEN_TO_WORK
+  NOT_LOOKING
+  FREELANCE_ONLY
+}
+
+enum PostType {
+  TEXT
+  SNIPPET
+  PROJECT
+  QUESTION
+}
+
+// ---------- Models ----------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String? // nullable عشان OAuth users
+  githubId     String?  @unique
+  role         Role     @default(DEVELOPER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile  Profile?
+  posts    Post[]
+  conversations ConversationParticipant[]
+  messages      Message[]
+  communities   CommunityMember[]
+  notifications Notification[]
+  comments Comment[]
+  likes    Like[]
+}
+
+// بيانات البروفايل — دي اللي فلتر الـ HR هيشتغل عليها
+model Profile {
+  id              String        @id @default(cuid())
+  userId          String        @unique
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName     String
+  headline        String? // "Full Stack Architect & UI/UX Specialist"
+  bio             String?
+  avatarUrl       String?
+  location        String?
+  yearsExperience Int           @default(0)
+  specialty       String? // "Frontend", "Backend", "DevOps", "AI/ML"...
+  availability    Availability  @default(NOT_LOOKING)
+  websiteUrl      String?
+  githubUrl       String?
+  skills          ProfileSkill[]
+
+  @@index([specialty, yearsExperience, availability]) // فهرس مخصوص لفلتر الـ HR
+}
+
+model Skill {
+  id       String         @id @default(cuid())
+  name     String         @unique // "React", "TypeScript", "Docker"...
+  profiles ProfileSkill[]
+}
+
+// جدول وسيط عشان علاقة many-to-many بين البروفايل والـ skills
+model ProfileSkill {
+  profileId String
+  skillId   String
+  years     Int    @default(0)
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  skill     Skill   @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([profileId, skillId])
+  @@index([skillId])
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  type      PostType @default(TEXT)
+  title     String?
+  body      String
+  // بيانات الـ code snippet (لو النوع SNIPPET)
+  codeLanguage String?
+  codeContent  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  comments Comment[]
+  likes    Like[]
+
+  @@index([authorId, createdAt])
+  @@index([type, createdAt])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  postId    String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt])
+}
+
+model Like {
+  userId String
+  postId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+  @@index([postId])
+}
+
+// ---------- Phase 4: Messaging ----------
+
+model Conversation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt // بنحدثه مع كل رسالة عشان نرتب القائمة بآخر نشاط
+
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  conversationId String
+  userId         String
+  joinedAt       DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String
+  body           String
+  // الرسالة ممكن تكون code snippet — زي الـ mockup
+  codeLanguage   String?
+  codeContent    String?
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+// ---------- Phase 6: Communities & Notifications ----------
+
+enum CommunityRole {
+  MEMBER
+  ADMIN
+}
+
+enum NotificationType {
+  POST_LIKE
+  POST_COMMENT
+  COMMUNITY_JOIN
+}
+
+model Community {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  category    String // "Frontend", "Backend", "AI & ML", "DevOps", "Mobile"...
+  createdAt   DateTime @default(now())
+
+  members CommunityMember[]
+
+  @@index([category])
+}
+
+model CommunityMember {
+  communityId String
+  userId      String
+  role        CommunityRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([communityId, userId])
+  @@index([userId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String // المستلم
+  actorId   String? // اللي عمل الحدث (ممكن يكون null لإشعارات النظام)
+  type      NotificationType
+  message   String
+  link      String? // رابط نسبي — مثلاً /feed أو /communities/react-masters
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
+}

@@ -1,0 +1,201 @@
+import { Router } from "express";
+import { prisma } from "../lib/prisma.js";
+import { Errors } from "../lib/errors.js";
+import { asyncHandler } from "../middleware/errorHandler.js";
+import { requireAuth } from "../middleware/auth.js";
+import { createPostSchema, createCommentSchema, feedQuerySchema } from "../schemas/posts.js";
+import { notify } from "../lib/notify.js";
+
+export const postsRouter = Router();
+
+// شكل البوست اللي بيرجع للـ client — دايمًا نفس الـ select عشان الاتساق
+const postSelect = (viewerId: string) =>
+  ({
+    id: true,
+    type: true,
+    title: true,
+    body: true,
+    codeLanguage: true,
+    codeContent: true,
+    createdAt: true,
+    author: {
+      select: {
+        username: true,
+        profile: { select: { displayName: true, avatarUrl: true, headline: true } },
+      },
+    },
+    _count: { select: { likes: true, comments: true } },
+    // hack لطيف: بنجيب لايك المستخدم الحالي بس — لو المصفوفة فيها عنصر يبقى عامل لايك
+    likes: { where: { userId: viewerId }, select: { userId: true } },
+  }) as const;
+
+// بنحول شكل Prisma لشكل أنضف للـ client
+function shapePost(p: any) {
+  const { likes, _count, ...rest } = p;
+  return { ...rest, likeCount: _count.likes, commentCount: _count.comments, likedByMe: likes.length > 0 };
+}
+
+// ---------------------------------------------------------------
+// GET /api/posts — الـ feed (cursor pagination + sort)
+// ---------------------------------------------------------------
+postsRouter.get(
+  "/",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const q = feedQuerySchema.parse(req.query);
+
+    const posts = await prisma.post.findMany({
+      take: q.take + 1, // واحد زيادة عشان نعرف لو في صفحة بعد كده
+      ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
+      orderBy:
+        q.sort === "top"
+          ? [{ likes: { _count: "desc" } }, { createdAt: "desc" }]
+          : [{ createdAt: "desc" }],
+      select: postSelect(req.user!.userId),
+    });
+
+    const hasMore = posts.length > q.take;
+    const page = hasMore ? posts.slice(0, q.take) : posts;
+
+    res.json({
+      ok: true,
+      posts: page.map(shapePost),
+      nextCursor: hasMore ? page[page.length - 1]!.id : null,
+    });
+  })
+);
+
+// ---------------------------------------------------------------
+// POST /api/posts — إنشاء بوست (نص / سؤال / snippet)
+// ---------------------------------------------------------------
+postsRouter.post(
+  "/",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const input = createPostSchema.parse(req.body);
+
+    const post = await prisma.post.create({
+      data: {
+        authorId: req.user!.userId,
+        type: input.type,
+        title: input.title ?? null,
+        body: input.body,
+        codeLanguage: input.type === "SNIPPET" ? input.codeLanguage : null,
+        codeContent: input.type === "SNIPPET" ? input.codeContent : null,
+      },
+      select: postSelect(req.user!.userId),
+    });
+
+    res.status(201).json({ ok: true, post: shapePost(post) });
+  })
+);
+
+// ---------------------------------------------------------------
+// POST /api/posts/:id/like — toggle: لايك لو مش عامل، شيله لو عامل
+// ---------------------------------------------------------------
+postsRouter.post(
+  "/:id/like",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const postId = req.params.id!;
+    const userId = req.user!.userId;
+
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, title: true, body: true },
+    });
+    if (!post) throw Errors.notFound("Post");
+
+    const existing = await prisma.like.findUnique({
+      where: { userId_postId: { userId, postId } },
+    });
+
+    if (existing) {
+      await prisma.like.delete({ where: { userId_postId: { userId, postId } } });
+    } else {
+      await prisma.like.create({ data: { userId, postId } });
+
+      // إشعار لصاحب البوست — بس لما حد "يعمل" لايك، مش لما يشيله
+      const liker = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+      await notify({
+        userId: post.authorId,
+        actorId: userId,
+        type: "POST_LIKE",
+        message: `@${liker?.username} liked your post "${(post.title ?? post.body).slice(0, 40)}"`,
+        link: "/feed",
+      });
+    }
+
+    const likeCount = await prisma.like.count({ where: { postId } });
+    res.json({ ok: true, liked: !existing, likeCount });
+  })
+);
+
+// ---------------------------------------------------------------
+// GET /api/posts/:id/comments
+// ---------------------------------------------------------------
+postsRouter.get(
+  "/:id/comments",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const comments = await prisma.comment.findMany({
+      where: { postId: req.params.id! },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
+        author: {
+          select: {
+            username: true,
+            profile: { select: { displayName: true, avatarUrl: true } },
+          },
+        },
+      },
+    });
+    res.json({ ok: true, comments });
+  })
+);
+
+// ---------------------------------------------------------------
+// POST /api/posts/:id/comments
+// ---------------------------------------------------------------
+postsRouter.post(
+  "/:id/comments",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const input = createCommentSchema.parse(req.body);
+    const postId = req.params.id!;
+
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, title: true, body: true },
+    });
+    if (!post) throw Errors.notFound("Post");
+
+    const comment = await prisma.comment.create({
+      data: { postId, authorId: req.user!.userId, body: input.body },
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
+        author: {
+          select: {
+            username: true,
+            profile: { select: { displayName: true, avatarUrl: true } },
+          },
+        },
+      },
+    });
+
+    await notify({
+      userId: post.authorId,
+      actorId: req.user!.userId,
+      type: "POST_COMMENT",
+      message: `@${comment.author.username} commented on your post "${(post.title ?? post.body).slice(0, 40)}"`,
+      link: "/feed",
+    });
+
+    res.status(201).json({ ok: true, comment });
+  })
+);

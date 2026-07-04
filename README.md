@@ -1,0 +1,58 @@
+# DevConnect ⌁
+
+> The Architecture of Connection — a community platform connecting developers, engineers, and tech recruiters.
+
+## Structure
+
+```
+devconnect/
+├── client/   # React + Vite + TypeScript + Tailwind
+└── server/   # Express + TypeScript + Prisma + PostgreSQL
+```
+
+## Getting started
+
+### 1. Server
+```bash
+cd server
+npm install
+cp .env.example .env        # عدّل DATABASE_URL بتاع Postgres عندك
+npx prisma migrate dev      # ينشئ الجداول من الـ schema (Users, Posts, Conversations, Messages...)
+npm run dev                 # http://localhost:4000/api/health
+```
+
+### 2. Client
+```bash
+cd client
+npm install
+npm run dev                 # http://localhost:5173
+```
+
+الـ Vite proxy بيحوّل أي `/api/*` للـ backend تلقائيًا — مفيش CORS headaches في التطوير.
+
+## Error handling philosophy
+
+- **Server:** كل error بيعدي من `errorHandler` middleware واحد → response موحد:
+  `{ ok: false, error: { code, message, details? } }`
+- **Zod validation** بترجع تفاصيل واضحة (المسار + الرسالة) بـ status 422
+- **Client:** `lib/api.ts` بيحوّل أي error response لـ `ApiError` typed class
+- **ErrorBoundary** بيمنع إن component واقع يوقّع الصفحة كلها
+
+## Roadmap
+- [x] Phase 1 — Project setup + DB schema + error system
+- [x] Phase 2 — Auth: register/login (bcrypt+JWT), GitHub OAuth, Zod validation, role system
+- [x] Phase 3 — Feed: posts (text/question/snippet + syntax highlighting), likes, comments, Latest/Top sorting, cursor pagination
+- [x] Phase 4 — Real-time chat: Socket.io (JWT-auth'd sockets), 1:1 conversations, code-snippet messages, typing indicator, online presence
+- [x] Phase 5 — HR Talent Search: profile editor (specialty/experience/skills), recruiter-only search API (specialty, availability, min years, multi-skill AND filter, text search), candidate detail page
+- [x] Phase 6 — Communities (create/join/leave, category filters) + real-time notifications (post likes, comments, community joins) via Socket.io
+
+## Going to production
+
+المشروع دلوقتي فيه كل الميزات الأساسية شغالة end-to-end. قبل ما تنزله live:
+
+- **Testing:** ضيف Vitest للـ unit tests و Playwright للـ E2E (الملفات في `server/src/tests/*.spec.ts` دلوقتي بتشتغل كـ integration scripts يدوية — حوّلها لـ test suite رسمي)
+- **CI/CD:** GitHub Actions يشغّل `npm run typecheck` و`npm run build` مع كل push
+- **Monitoring:** Sentry أو مشابه لتتبع الأخطاء في الإنتاج (الـ `errorHandler` بيسجّل في الـ console دلوقتي بس)
+- **Rate limiting:** حط `express-rate-limit` على `/api/auth/*` بالذات عشان تمنع brute-force
+- **File uploads:** الصور (avatar, project screenshots) لسه مش متعملة — هتحتاج S3 أو Cloudinary
+- **Search:** البحث في الـ Navbar شكلي دلوقتي — لو عايز بحث حقيقي في البوستات والمطورين هتحتاج endpoint إضافي أو Postgres full-text search
