@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, ApiError } from "../lib/api";
+import { api, ApiError, API_BASE_URL } from "../lib/api";
 import { useAuth, type AuthUser } from "../lib/auth";
 
 export default function Login() {
@@ -43,7 +43,7 @@ export default function Login() {
         <p className="mb-6 mt-1 text-sm text-mist-400">Sign in to your account to continue.</p>
 
         {/* OAuth */}
-        <a href="/api/auth/github" className="btn-ghost w-full justify-center">
+        <a href={`${API_BASE_URL}/api/auth/github`} className="btn-ghost w-full justify-center">
            GitHub
         </a>
 

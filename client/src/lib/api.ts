@@ -3,6 +3,11 @@
 // بتضيف التوكن تلقائيًا وبتفهم شكل الـ error الموحد من الـ backend
 // ---------------------------------------------------------------
 
+// في التطوير المحلي: فاضي، فالطلبات بتتحول لـ /api/* والـ Vite proxy بيوصلها للسيرفر المحلي
+// في الإنتاج: بنحط رابط الـ backend الحقيقي (على Render) في متغير بيئة VITE_API_URL
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "";
+export { API_BASE_URL };
+
 export interface ApiErrorShape {
   code: string;
   message: string;
@@ -38,7 +43,7 @@ export class ApiError extends Error {
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("devconnect_token");
 
-  const res = await fetch(path, {
+  const res = await fetch(API_BASE_URL + path, {
     ...options,
     headers: {
       "Content-Type": "application/json",
