@@ -23,7 +23,7 @@ export default function Login() {
         { method: "POST", body: JSON.stringify({ identifier, password }) }
       );
       setSession(res.token, res.user);
-      navigate(res.user.role === "RECRUITER" ? "/talent" : "/feed");
+      navigate("/feed");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not reach the server");
     } finally {
@@ -43,9 +43,14 @@ export default function Login() {
         <p className="mb-6 mt-1 text-sm text-mist-400">Sign in to your account to continue.</p>
 
         {/* OAuth */}
-        <a href={`${API_BASE_URL}/api/auth/github`} className="btn-ghost w-full justify-center">
-           GitHub
-        </a>
+        <div className="grid grid-cols-2 gap-3">
+          <a href={`${API_BASE_URL}/api/auth/github`} className="btn-ghost justify-center">
+             GitHub
+          </a>
+          <a href={`${API_BASE_URL}/api/auth/google`} className="btn-ghost justify-center">
+            G Google
+          </a>
+        </div>
 
         <div className="my-6 flex items-center gap-3 text-xs font-semibold tracking-wider text-mist-600">
           <span className="h-px flex-1 bg-ink-700" /> OR WITH EMAIL
@@ -89,6 +94,11 @@ export default function Login() {
               >
                 {showPassword ? "🙈" : "👁"}
               </button>
+            </div>
+            <div className="mt-1.5 text-right">
+              <Link to="/forgot-password" className="text-xs font-semibold text-brand-400 hover:underline">
+                Forgot Password?
+              </Link>
             </div>
           </div>
 

@@ -14,6 +14,7 @@ import { communitiesRouter } from "./routes/communities.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { setupSocket } from "./socket.js";
 import { getAllowedOrigins } from "./lib/cors.js";
+import { authLimiter, apiLimiter } from "./middleware/rateLimit.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -44,6 +45,7 @@ app.get(
   })
 );
 
+app.use("/api", apiLimiter);
 app.use("/api/auth", authRouter);
 app.use("/api/posts", postsRouter);
 app.use("/api/conversations", conversationsRouter);

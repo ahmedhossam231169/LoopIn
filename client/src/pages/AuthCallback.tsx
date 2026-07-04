@@ -19,7 +19,7 @@ export default function AuthCallback() {
     api<{ ok: true; user: AuthUser }>("/api/auth/me")
       .then((res) => {
         setSession(token, res.user);
-        navigate(res.user.role === "RECRUITER" ? "/talent" : "/feed");
+        navigate("/feed");
       })
       .catch(() => navigate("/login"));
   }, [params, setSession, navigate]);

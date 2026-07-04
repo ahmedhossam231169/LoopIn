@@ -56,3 +56,14 @@ npm run dev                 # http://localhost:5173
 - **Rate limiting:** حط `express-rate-limit` على `/api/auth/*` بالذات عشان تمنع brute-force
 - **File uploads:** الصور (avatar, project screenshots) لسه مش متعملة — هتحتاج S3 أو Cloudinary
 - **Search:** البحث في الـ Navbar شكلي دلوقتي — لو عايز بحث حقيقي في البوستات والمطورين هتحتاج endpoint إضافي أو Postgres full-text search
+
+## Security & Auth (Group Zero)
+- [x] Password reset — token-based, hashed in DB, 30-min expiry, single-use
+- [x] Rate limiting — strict on login/register/reset (10/15min), lenient on general API (300/15min)
+- [x] Google OAuth — sign in / sign up with Google (alongside GitHub)
+- [x] Email delivery — SMTP when configured, console fallback for dev
+
+## Group 1 — Content & Profiles
+- [x] Public user profiles — view anyone's profile + their posts at /u/:username
+- [x] Edit / delete posts — owner-only, enforced server-side (403 otherwise)
+- [x] Recruiters see the full feed — same social experience as devs, with Talent Search as an extra

@@ -91,7 +91,7 @@ export default function Feed() {
         )}
 
         {posts.map((p) => (
-          <PostCard key={p.id} post={p} />
+          <PostCard key={p.id} post={p} onDeleted={(id) => setPosts((prev) => prev.filter((x) => x.id !== id))} />
         ))}
 
         {nextCursor && (

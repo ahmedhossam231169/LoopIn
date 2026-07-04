@@ -199,3 +199,85 @@ postsRouter.post(
     res.status(201).json({ ok: true, comment });
   })
 );
+
+// ---------------------------------------------------------------
+// GET /api/posts/user/:username — بوستات مستخدم معيّن (لصفحة البروفايل العامة)
+// ---------------------------------------------------------------
+postsRouter.get(
+  "/user/:username",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const user = await prisma.user.findUnique({
+      where: { username: req.params.username! },
+      select: { id: true },
+    });
+    if (!user) throw Errors.notFound("User");
+
+    const posts = await prisma.post.findMany({
+      where: { authorId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+      select: postSelect(req.user!.userId),
+    });
+
+    res.json({ ok: true, posts: posts.map(shapePost) });
+  })
+);
+
+// ---------------------------------------------------------------
+// PATCH /api/posts/:id — تعديل بوست (صاحبه بس)
+// ---------------------------------------------------------------
+postsRouter.patch(
+  "/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const postId = req.params.id!;
+    const existing = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { authorId: true, type: true },
+    });
+    if (!existing) throw Errors.notFound("Post");
+    if (existing.authorId !== req.user!.userId) {
+      throw Errors.forbidden("You can only edit your own posts");
+    }
+
+    // بنستخدم نفس الـ schema بتاع الإنشاء عشان نفس قواعد الـ validation
+    const input = createPostSchema.parse({ ...req.body, type: existing.type });
+
+    const post = await prisma.post.update({
+      where: { id: postId },
+      data: {
+        title: input.title ?? null,
+        body: input.body,
+        codeLanguage: input.type === "SNIPPET" ? input.codeLanguage : null,
+        codeContent: input.type === "SNIPPET" ? input.codeContent : null,
+      },
+      select: postSelect(req.user!.userId),
+    });
+
+    res.json({ ok: true, post: shapePost(post) });
+  })
+);
+
+// ---------------------------------------------------------------
+// DELETE /api/posts/:id — حذف بوست (صاحبه بس)
+// الـ likes والـ comments بيتحذفوا تلقائيًا (onDelete: Cascade في الـ schema)
+// ---------------------------------------------------------------
+postsRouter.delete(
+  "/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const postId = req.params.id!;
+    const existing = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { authorId: true },
+    });
+    if (!existing) throw Errors.notFound("Post");
+    if (existing.authorId !== req.user!.userId) {
+      throw Errors.forbidden("You can only delete your own posts");
+    }
+
+    await prisma.post.delete({ where: { id: postId } });
+    res.json({ ok: true });
+  })
+);

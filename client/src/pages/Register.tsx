@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, ApiError } from "../lib/api";
+import { api, ApiError, API_BASE_URL } from "../lib/api";
 import { useAuth, type AuthUser } from "../lib/auth";
 
 type Role = "DEVELOPER" | "RECRUITER";
@@ -34,7 +34,7 @@ export default function Register() {
         { method: "POST", body: JSON.stringify({ ...form, role }) }
       );
       setSession(res.token, res.user);
-      navigate(res.user.role === "RECRUITER" ? "/talent" : "/feed");
+      navigate("/feed");
     } catch (err) {
       if (err instanceof ApiError) {
         // أخطاء الـ Zod بتظهر تحت كل حقل لوحده
@@ -63,6 +63,20 @@ export default function Register() {
       <div className="card w-full max-w-md">
         <h1 className="text-2xl font-bold">Create your account</h1>
         <p className="mb-6 mt-1 text-sm text-mist-400">Free for developers, forever.</p>
+
+        {/* OAuth — أسرع طريقة للتسجيل */}
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <a href={`${API_BASE_URL}/api/auth/github`} className="btn-ghost justify-center">
+             GitHub
+          </a>
+          <a href={`${API_BASE_URL}/api/auth/google`} className="btn-ghost justify-center">
+            G Google
+          </a>
+        </div>
+        <div className="mb-6 flex items-center gap-3 text-xs font-semibold tracking-wider text-mist-600">
+          <span className="h-px flex-1 bg-ink-700" /> OR SIGN UP WITH EMAIL
+          <span className="h-px flex-1 bg-ink-700" />
+        </div>
 
         {/* اختيار نوع الحساب — أساس فلتر الـ HR من أول لحظة */}
         <div className="mb-6 grid grid-cols-2 gap-2 rounded-lg border border-ink-700 bg-ink-900 p-1">

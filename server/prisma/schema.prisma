@@ -40,6 +40,10 @@ model User {
   username     String   @unique
   passwordHash String? // nullable عشان OAuth users
   githubId     String?  @unique
+  googleId     String?  @unique
+  // استعادة كلمة السر — بنخزن hash التوكن مش التوكن نفسه (أمان)
+  resetTokenHash   String?
+  resetTokenExpiry DateTime?
   role         Role     @default(DEVELOPER)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

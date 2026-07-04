@@ -6,6 +6,8 @@ import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import AuthCallback from "./pages/AuthCallback";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Feed from "./pages/Feed";
 import Messages from "./pages/Messages";
 import EditProfile from "./pages/EditProfile";
@@ -13,6 +15,7 @@ import TalentSearch from "./pages/TalentSearch";
 import CandidateDetail from "./pages/CandidateDetail";
 import Communities from "./pages/Communities";
 import CommunityDetail from "./pages/CommunityDetail";
+import UserProfile from "./pages/UserProfile";
 
 export default function App() {
   return (
@@ -23,12 +26,15 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           <Route path="/feed" element={<ProtectedRoute><Feed /></ProtectedRoute>} />
           <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
           <Route path="/profile/edit" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
           <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />
           <Route path="/communities/:slug" element={<ProtectedRoute><CommunityDetail /></ProtectedRoute>} />
+          <Route path="/u/:username" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
 
           {/* المرحلة 5 — recruiters بس */}
           <Route path="/talent" element={<RecruiterRoute><TalentSearch /></RecruiterRoute>} />

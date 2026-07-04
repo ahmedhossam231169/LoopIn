@@ -21,9 +21,14 @@ export function Navbar() {
     </Link>
   );
 
-  // Recruiters بيشوفوا Talent Search بدل الـ Feed/Messages/Communities بتوع المطورين
+  // Recruiters بيشوفوا كل حاجة زي المطور + Talent Search كميزة إضافية ليهم
   const links = isRecruiter
-    ? [{ to: "/talent", label: "Talent Search" }]
+    ? [
+        { to: "/feed", label: "Feed" },
+        { to: "/messages", label: "Messages" },
+        { to: "/communities", label: "Communities" },
+        { to: "/talent", label: "🎯 Talent Search" },
+      ]
     : [
         { to: "/feed", label: "Feed" },
         { to: "/messages", label: "Messages" },
@@ -34,7 +39,7 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-10 border-b border-ink-700 bg-ink-950/90 backdrop-blur">
       <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
-        <Link to={isRecruiter ? "/talent" : "/feed"} className="shrink-0 text-lg font-extrabold text-brand-400">
+        <Link to="/feed" className="shrink-0 text-lg font-extrabold text-brand-400">
           ⌁ DevConnect
         </Link>
 
