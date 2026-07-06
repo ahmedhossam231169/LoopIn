@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import type { CommunityDetail as CommunityDetailType, Post } from "../lib/types";
 import { Navbar } from "../components/Navbar";
-import { ArrowLeft, Settings, Users as UsersIcon, X } from "lucide-react";
+import { ArrowLeft, Settings, Users as UsersIcon, X, UserMinus } from "lucide-react";
 import { Composer } from "../components/Composer";
 import { PostCard } from "../components/PostCard";
 
@@ -26,6 +26,13 @@ export default function CommunityDetail() {
     setShowSettings(true);
     const res = await api<{ ok: true; members: any[] }>(`/api/communities/${community.slug}/members`).catch(() => null);
     if (res) setMembers(res.members);
+  }
+
+  async function removeMember(username: string) {
+    if (!community || !confirm(`Remove @${username} from the community?`)) return;
+    await api(`/api/communities/${community.slug}/members/${username}`, { method: "DELETE" }).catch(() => {});
+    setMembers((prev) => prev.filter((m) => m.username !== username));
+    setCommunity((c) => (c ? { ...c, memberCount: Math.max(0, c.memberCount - 1) } : c));
   }
 
   async function saveSettings() {
@@ -161,7 +168,16 @@ export default function CommunityDetail() {
                       {m.profile.avatarUrl ? <img src={m.profile.avatarUrl} alt="" className="h-full w-full object-cover" /> : m.profile.displayName[0]?.toUpperCase()}
                     </div>
                     <span className="text-sm">{m.profile.displayName}</span>
-                    {m.role === "ADMIN" && <span className="ml-auto rounded-full bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-400">Admin</span>}
+                    {m.role === "ADMIN" && <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-400">Admin</span>}
+                    {m.role !== "ADMIN" && (
+                      <button
+                        onClick={(e) => { e.preventDefault(); removeMember(m.username); }}
+                        className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-xs text-mist-400 hover:bg-ink-800 hover:text-red-400"
+                        title="Remove member"
+                      >
+                        <UserMinus size={13} /> Remove
+                      </button>
+                    )}
                   </Link>
                 ))}
               </div>

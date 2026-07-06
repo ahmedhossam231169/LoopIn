@@ -339,3 +339,33 @@ communitiesRouter.patch(
     res.json({ ok: true, community: updated });
   })
 );
+
+// ---------------------------------------------------------------
+// DELETE /api/communities/:slug/members/:username — إزالة عضو (ADMIN بس)
+// ---------------------------------------------------------------
+communitiesRouter.delete(
+  "/:slug/members/:username",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.userId;
+    const community = await prisma.community.findFirst({
+      where: { slug: req.params.slug! },
+      select: { id: true },
+    });
+    if (!community) throw Errors.notFound("Community");
+
+    const me = await prisma.communityMember.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId } },
+    });
+    if (!me || me.role !== "ADMIN") throw Errors.forbidden("Only community admins can remove members");
+
+    const target = await prisma.user.findUnique({ where: { username: req.params.username! }, select: { id: true } });
+    if (!target) throw Errors.notFound("User");
+    if (target.id === userId) throw Errors.badRequest("You can't remove yourself");
+
+    await prisma.communityMember.delete({
+      where: { communityId_userId: { communityId: community.id, userId: target.id } },
+    }).catch(() => {});
+    res.json({ ok: true });
+  })
+);

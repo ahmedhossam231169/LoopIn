@@ -1,12 +1,18 @@
+import { Link } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../lib/api";
 import { COMMUNITY_CATEGORIES, type CommunityCategory, type CommunityListItem } from "../lib/types";
 import { Navbar } from "../components/Navbar";
-import { Users } from "lucide-react";
+import { Users, Atom, Cog, Brain, Server, Smartphone, BarChart3, Hexagon } from "lucide-react";
 
-const CATEGORY_ICONS: Record<string, string> = {
-  Frontend: "⚛️", Backend: "⚙️", "AI & ML": "🧠", DevOps: "☸️", Mobile: "📱", Data: "📊",
+const CATEGORY_ICONS: Record<string, typeof Atom> = {
+  Frontend: Atom, Backend: Cog, "AI & ML": Brain, DevOps: Server, Mobile: Smartphone, Data: BarChart3,
 };
+
+function CatIcon({ category, size = 26 }: { category: string; size?: number }) {
+  const Icon = CATEGORY_ICONS[category] ?? Hexagon;
+  return <Icon size={size} />;
+}
 
 export default function Communities() {
   const [communities, setCommunities] = useState<CommunityListItem[]>([]);
@@ -140,7 +146,7 @@ export default function Communities() {
                 (category === c ? "bg-brand-500 text-white" : "border border-ink-700 text-mist-400 hover:text-mist-100")
               }
             >
-              {c === "All" ? "All Communities" : `${CATEGORY_ICONS[c] ?? ""} ${c}`}
+              {c === "All" ? "All Communities" : c}
             </button>
           ))}
         </div>
@@ -157,23 +163,26 @@ export default function Communities() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {communities.map((c) => (
             <div key={c.id} className="card !p-4">
-              <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500/30 to-ink-700 text-3xl">
-                {CATEGORY_ICONS[c.category] ?? "🔷"}
-              </div>
-              <h3 className="font-bold">{c.name}</h3>
+              <Link to={`/communities/${c.slug}`} className="mb-3 flex h-16 w-16 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500/30 to-ink-700 text-brand-400" aria-label={`${c.name} community`}>
+                <CatIcon category={c.category} />
+              </Link>
+              <Link to={`/communities/${c.slug}`} className="font-bold hover:underline">{c.name}</Link>
               <p className="mt-1 line-clamp-2 text-sm text-mist-400">{c.description}</p>
               <p className="mt-2 inline-flex items-center gap-1 text-xs text-mist-600"><Users size={12} /> {c.memberCount} members</p>
-              <button
-                onClick={() => toggleJoin(c)}
-                className={
-                  "mt-3 w-full rounded-lg px-4 py-2 text-sm font-semibold transition-colors " +
-                  (c.joinedByMe
-                    ? "border border-ink-700 text-mist-100 hover:bg-ink-900"
-                    : "bg-brand-500 text-white hover:bg-brand-600")
-                }
-              >
-                {c.joinedByMe ? "Joined ✓" : "Explore Community"}
-              </button>
+              <div className="mt-3 flex gap-2">
+                <Link to={`/communities/${c.slug}`} className="btn-ghost flex-1 justify-center !py-2 text-sm">View</Link>
+                <button
+                  onClick={() => toggleJoin(c)}
+                  className={
+                    "flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-colors " +
+                    (c.joinedByMe
+                      ? "border border-ink-700 text-mist-100 hover:bg-ink-900"
+                      : "bg-brand-500 text-white hover:bg-brand-600")
+                  }
+                >
+                  {c.joinedByMe ? "Joined" : "Join"}
+                </button>
+              </div>
             </div>
           ))}
         </div>
