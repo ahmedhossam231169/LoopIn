@@ -9,6 +9,12 @@ import { Zap, MapPin, Briefcase, Clock, MessageCircle, Code2, Link2 } from "luci
 import { RelationActions } from "../components/RelationActions";
 import { GitHubProjects } from "../components/GitHubProjects";
 
+// [SECURITY] نتأكد إن الرابط http(s) قبل ما نحطه في href
+// (روابط javascript: أو data: = XSS لو اتضغط عليها)
+function isSafeHttpUrl(url: string | null | undefined): boolean {
+  return !!url && /^https?:\/\//i.test(url);
+}
+
 interface PublicUser {
   username: string;
   role: string;
@@ -129,12 +135,14 @@ export default function UserProfile() {
                 </div>
               )}
 
+              {/* [SECURITY] دفاع-في-العمق: السيرفر بيرفض غير http(s) دلوقتي،
+                  لكن بنفلتر هنا كمان عشان أي بيانات قديمة اتخزنت قبل الإصلاح */}
               <div className="mt-4 flex gap-4 border-t border-ink-700 pt-3 text-sm">
-                {profile.githubUrl && (
-                  <a href={profile.githubUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-mist-400 hover:text-brand-400"><Code2 size={15} /> GitHub</a>
+                {isSafeHttpUrl(profile.githubUrl) && (
+                  <a href={profile.githubUrl!} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-mist-400 hover:text-brand-400"><Code2 size={15} /> GitHub</a>
                 )}
-                {profile.websiteUrl && (
-                  <a href={profile.websiteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-mist-400 hover:text-brand-400"><Link2 size={15} /> Portfolio</a>
+                {isSafeHttpUrl(profile.websiteUrl) && (
+                  <a href={profile.websiteUrl!} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-mist-400 hover:text-brand-400"><Link2 size={15} /> Portfolio</a>
                 )}
               </div>
             </div>

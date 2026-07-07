@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { httpUrl } from "./profile.js";
 
 // اللغات المدعومة في الـ code snippets — نفس اللي هنعمله highlighting في الـ client
 export const SNIPPET_LANGUAGES = [
@@ -9,7 +10,7 @@ export const SNIPPET_LANGUAGES = [
 const baseFields = {
   title: z.string().max(120, "Title is too long").optional(),
   body: z.string().min(1, "Post body is required").max(5000, "Post is too long"),
-  imageUrl: z.string().url().optional(), // صورة مرفقة (Cloudinary)
+  imageUrl: httpUrl().optional(), // صورة مرفقة (Cloudinary) — http(s) بس، بتتعرض في href/src
 };
 
 // discriminatedUnion: قواعد مختلفة حسب نوع البوست

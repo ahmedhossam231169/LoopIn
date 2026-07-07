@@ -43,12 +43,15 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "devconnect-api", time: new Date().toISOString() });
 });
 
-app.get(
-  "/api/demo-error",
-  asyncHandler(async () => {
-    throw Errors.notFound("Demo resource");
-  })
-);
+// [SECURITY] endpoint تجريبي — بيشتغل في التطوير بس، مالوش لازمة في الإنتاج
+if (process.env.NODE_ENV !== "production") {
+  app.get(
+    "/api/demo-error",
+    asyncHandler(async () => {
+      throw Errors.notFound("Demo resource");
+    })
+  );
+}
 
 app.use("/api", apiLimiter);
 app.use("/api/auth", authRouter);

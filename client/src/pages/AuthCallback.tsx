@@ -1,16 +1,20 @@
 import { useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth, type AuthUser } from "../lib/auth";
 
-// GitHub بيرجّعنا هنا بـ ?token=... — بنخزنه ونجيب بيانات المستخدم
+// السيرفر بيرجّعنا هنا بـ #token=... — بنخزنه ونجيب بيانات المستخدم
+// [SECURITY] بنستخدم fragment (#) مش query (?) لأن الـ fragment ما بيتبعتش
+// لأي سيرفر ولا بيتسجل في access logs ولا بيتسرب في Referer headers
 export default function AuthCallback() {
-  const [params] = useSearchParams();
   const { setSession } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const token = params.get("token");
+    const hashParams = new URLSearchParams(window.location.hash.slice(1));
+    const token = hashParams.get("token");
+    // ننضف التوكن من شريط العنوان فورًا حتى بعد قراءته
+    window.history.replaceState(null, "", window.location.pathname);
     if (!token) {
       navigate("/login");
       return;
@@ -22,7 +26,7 @@ export default function AuthCallback() {
         navigate(res.user.profile.onboarded ? "/feed" : "/onboarding");
       })
       .catch(() => navigate("/login"));
-  }, [params, setSession, navigate]);
+  }, [setSession, navigate]);
 
   return (
     <main className="flex min-h-screen items-center justify-center">

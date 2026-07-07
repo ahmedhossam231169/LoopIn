@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+// [SECURITY] z.string().url() لوحدها بتقبل سكيمات زي javascript: و data:
+// واللينكات دي بتتعرض في href على البروفايل → stored XSS
+// فبنقصر الروابط على http/https بس
+export const httpUrl = (message = "Enter a valid URL") =>
+  z
+    .string()
+    .url(message)
+    .refine((v) => /^https?:\/\//i.test(v), { message: "Only http(s) links are allowed" });
+
 export const SPECIALTIES = [
   "Frontend", "Backend", "Full Stack", "DevOps", "Mobile",
   "AI/ML", "Data Engineer", "UI/UX", "QA/Testing", "Security",
@@ -16,9 +25,9 @@ export const updateProfileSchema = z.object({
   yearsExperience: z.coerce.number().int().min(0).max(60).optional(),
   specialty: z.enum(SPECIALTIES).optional(),
   availability: z.enum(["OPEN_TO_WORK", "NOT_LOOKING", "FREELANCE_ONLY"]).optional(),
-  websiteUrl: z.string().url("Enter a valid URL").or(z.literal("")).optional(),
-  githubUrl: z.string().url("Enter a valid URL").or(z.literal("")).optional(),
-  avatarUrl: z.string().url().or(z.literal("")).optional(),
+  websiteUrl: httpUrl().or(z.literal("")).optional(),
+  githubUrl: httpUrl().or(z.literal("")).optional(),
+  avatarUrl: httpUrl().or(z.literal("")).optional(),
   // الـ skills بتتبعت كـ array من { name, years } — بنعمل upsert لكل واحدة
   skills: z
     .array(

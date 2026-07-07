@@ -11,6 +11,51 @@ import { authLimiter } from "../middleware/rateLimit.js";
 
 export const authRouter = Router();
 
+// ---------------------------------------------------------------
+// [SECURITY] OAuth state — حماية من CSRF على الـ callback
+// بنولّد قيمة عشوائية، بنحطها في كوكي httpOnly وفي بارامتر state،
+// وفي الـ callback لازم الاتنين يتطابقوا. من غيرها مهاجم يقدر يخلي
+// المتصفح بتاعك يكمّل تدفق OAuth بدأه هو (login CSRF / ربط حساب غلط)
+// ---------------------------------------------------------------
+import crypto from "node:crypto";
+import type { Request, Response } from "express";
+
+const OAUTH_STATE_COOKIE = "dc_oauth_state";
+
+function issueOAuthState(res: Response): string {
+  const state = crypto.randomBytes(24).toString("hex");
+  res.cookie(OAUTH_STATE_COOKIE, state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax", // lax عشان الكوكي يتبعت مع الـ redirect الراجع من GitHub/Google
+    maxAge: 10 * 60 * 1000, // 10 دقايق كافية لإتمام التدفق
+    path: "/api/auth",
+  });
+  return state;
+}
+
+function verifyOAuthState(req: Request, res: Response) {
+  const returned = String(req.query.state ?? "");
+  // قراءة الكوكي يدويًا — مش محتاجين cookie-parser لكوكي واحد
+  const cookieHeader = req.headers.cookie ?? "";
+  const match = cookieHeader
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${OAUTH_STATE_COOKIE}=`));
+  const stored = match ? decodeURIComponent(match.slice(OAUTH_STATE_COOKIE.length + 1)) : "";
+
+  res.clearCookie(OAUTH_STATE_COOKIE, { path: "/api/auth" }); // يتستخدم مرة واحدة
+
+  if (
+    !returned ||
+    !stored ||
+    returned.length !== stored.length ||
+    !crypto.timingSafeEqual(Buffer.from(returned), Buffer.from(stored))
+  ) {
+    throw Errors.unauthorized("OAuth state mismatch. Please try signing in again.");
+  }
+}
+
 // اللي بنرجعه للـ client عن المستخدم — من غير passwordHash أبدًا
 const publicUserSelect = {
   id: true,
@@ -128,6 +173,7 @@ authRouter.get("/github", (_req, res) => {
   const params = new URLSearchParams({
     client_id: clientId,
     scope: "read:user user:email",
+    state: issueOAuthState(res), // [SECURITY] CSRF protection
   });
   res.redirect(`https://github.com/login/oauth/authorize?${params}`);
 });
@@ -143,6 +189,7 @@ interface GitHubUser {
 authRouter.get(
   "/github/callback",
   asyncHandler(async (req, res) => {
+    verifyOAuthState(req, res); // [SECURITY] لازم قبل أي حاجة تانية
     const code = String(req.query.code ?? "");
     if (!code) throw Errors.badRequest("Missing OAuth code");
 
@@ -169,11 +216,24 @@ authRouter.get(
     let user = await prisma.user.findUnique({ where: { githubId: String(gh.id) } });
 
     if (!user) {
-      const email = gh.email ?? `${gh.login}@users.noreply.github.com`;
+      // [SECURITY] إيميل GitHub العام مش مضمون إنه مُتحقق منه، فما بنربطش
+      // بيه حساب موجود (منع account takeover). لو الإيميل مستخدم بالفعل
+      // بننشئ الحساب بإيميل noreply بدل ما نرمي unique-constraint error
+      let email = gh.email ?? `${gh.login}@users.noreply.github.com`;
+      if (await prisma.user.findUnique({ where: { email }, select: { id: true } })) {
+        email = `${gh.login}@users.noreply.github.com`;
+      }
+
+      // username ممكن يكون محجوز عندنا — نضيف لاحقة عشوائية لحد ما نلاقي فاضي
+      let username = gh.login;
+      while (await prisma.user.findUnique({ where: { username }, select: { id: true } })) {
+        username = `${gh.login}_${crypto.randomBytes(2).toString("hex")}`;
+      }
+
       user = await prisma.user.create({
         data: {
           email,
-          username: gh.login,
+          username,
           githubId: String(gh.id),
           role: "DEVELOPER",
           profile: {
@@ -192,14 +252,13 @@ authRouter.get(
     // بنرجّع المستخدم للـ frontend والتوكن في الـ URL (الـ client هيلقطه ويخزنه)
     // ده رابط redirect فعلي (مش CORS whitelist)، فبناخد أول دومين مسموح بس
     const clientUrl = getAllowedOrigins()[0];
-    res.redirect(`${clientUrl}/auth/callback?token=${token}`);
+    res.redirect(`${clientUrl}/auth/callback#token=${token}`); // [SECURITY] fragment مش بيتبعت للسيرفرات ولا بيتسجل في logs
   })
 );
 
 // ---------------------------------------------------------------
 // POST /api/auth/forgot-password — الخطوة 1: طلب استعادة كلمة السر
 // ---------------------------------------------------------------
-import crypto from "node:crypto";
 import { z } from "zod";
 import { sendEmail, passwordResetEmail } from "../lib/email.js";
 
@@ -290,6 +349,7 @@ authRouter.get("/google", (_req, res) => {
     redirect_uri: `${process.env.SERVER_URL || "http://localhost:4000"}/api/auth/google/callback`,
     response_type: "code",
     scope: "openid email profile",
+    state: issueOAuthState(res), // [SECURITY] CSRF protection
   });
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
@@ -304,6 +364,7 @@ interface GoogleUser {
 authRouter.get(
   "/google/callback",
   asyncHandler(async (req, res) => {
+    verifyOAuthState(req, res); // [SECURITY] لازم قبل أي حاجة تانية
     const code = String(req.query.code ?? "");
     if (!code) throw Errors.badRequest("Missing OAuth code");
 
@@ -365,6 +426,6 @@ authRouter.get(
 
     const token = signToken({ userId: user.id, role: user.role });
     const clientUrl = getAllowedOrigins()[0];
-    res.redirect(`${clientUrl}/auth/callback?token=${token}`);
+    res.redirect(`${clientUrl}/auth/callback#token=${token}`); // [SECURITY] fragment مش بيتبعت للسيرفرات ولا بيتسجل في logs
   })
 );

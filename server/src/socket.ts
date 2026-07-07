@@ -121,6 +121,16 @@ export function setupSocket(httpServer: HttpServer) {
     // ---- typing indicator: مجرد passthrough، مش بيتخزن ----
     socket.on("typing", async (payload: { conversationId: string; typing: boolean }) => {
       if (typeof payload?.conversationId !== "string") return;
+
+      // [SECURITY] نفس فحص message:send — من غيره أي مستخدم يقدر يبعت
+      // typing مزيف لأي محادثة مش طرف فيها (انتحال + probing لمعرفات المحادثات)
+      const membership = await prisma.conversationParticipant.findUnique({
+        where: {
+          conversationId_userId: { conversationId: payload.conversationId, userId },
+        },
+      });
+      if (!membership) return;
+
       const participants = await prisma.conversationParticipant.findMany({
         where: { conversationId: payload.conversationId },
         select: { userId: true },
@@ -185,7 +195,14 @@ async function notifyOfflineRecipients(
     select: { email: true, profile: { select: { displayName: true } } },
   });
 
-  const preview = message.codeContent ? "sent you a code snippet" : `: "${message.body.slice(0, 80)}"`;
+  // [SECURITY] الاسم ونص الرسالة من إدخال المستخدم وبيتحقنوا في HTML الإيميل
+  // من غير escaping ممكن حقن روابط/محتوى تصيّد في إيميل رسمي من DevConnect
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const safeSenderName = esc(senderName);
+  const preview = message.codeContent
+    ? "sent you a code snippet"
+    : `: "${esc(message.body.slice(0, 80))}"`;
   const clientUrl = (process.env.CLIENT_URL || "").split(",")[0] || "";
 
   for (const r of recipients) {
@@ -195,7 +212,7 @@ async function notifyOfflineRecipients(
       `
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
           <h2 style="color: #6C5CE7;">⌁ DevConnect</h2>
-          <p><b>${senderName}</b> ${preview}</p>
+          <p><b>${safeSenderName}</b> ${preview}</p>
           <a href="${clientUrl}/messages"
              style="display:inline-block; background:#6C5CE7; color:#fff; padding:12px 24px;
                     border-radius:8px; text-decoration:none; font-weight:bold; margin:16px 0;">
