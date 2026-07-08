@@ -10,6 +10,7 @@ import AuthCallback from "./pages/AuthCallback";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import Feed from "./pages/Feed";
+import PostDetail from "./pages/PostDetail";
 import Messages from "./pages/Messages";
 import EditProfile from "./pages/EditProfile";
 import TalentSearch from "./pages/TalentSearch";
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="/reset-password" element={<ResetPassword />} />
 
           <Route path="/feed" element={<ProtectedRoute><Feed /></ProtectedRoute>} />
+          <Route path="/post/:id" element={<ProtectedRoute><PostDetail /></ProtectedRoute>} />
           <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
           <Route path="/profile/edit" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
           <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />
@@ -48,7 +50,6 @@ export default function App() {
           <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
           <Route path="/shortlist" element={<RecruiterRoute><Shortlist /></RecruiterRoute>} />
 
-          {/* المرحلة 5 — recruiters بس */}
           <Route path="/talent" element={<RecruiterRoute><TalentSearch /></RecruiterRoute>} />
           <Route path="/talent/:username" element={<RecruiterRoute><CandidateDetail /></RecruiterRoute>} />
         </Routes>

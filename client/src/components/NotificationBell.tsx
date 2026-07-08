@@ -3,11 +3,12 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { getSocket } from "../lib/socket";
 import { timeAgo, type AppNotification } from "../lib/types";
-import { Bell, Heart, MessageCircle, Users, UserPlus, UserCheck, UserRound } from "lucide-react";
+import { Bell, Heart, MessageCircle, Repeat2, Users, UserPlus, UserCheck, UserRound } from "lucide-react";
 
 const TYPE_ICON: Record<string, typeof Bell> = {
   POST_LIKE: Heart,
   POST_COMMENT: MessageCircle,
+  POST_REPOST: Repeat2,
   COMMUNITY_JOIN: Users,
   FRIEND_REQUEST: UserPlus,
   FRIEND_ACCEPT: UserCheck,

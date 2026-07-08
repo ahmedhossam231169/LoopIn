@@ -38,7 +38,6 @@ export default function ResetPassword() {
     }
   }
 
-  // لو مفيش توكن في الرابط أصلاً
   if (!token) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center px-4">

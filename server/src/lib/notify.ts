@@ -4,6 +4,7 @@ import { emitToUser } from "../socket.js";
 type NotificationType =
   | "POST_LIKE"
   | "POST_COMMENT"
+  | "POST_REPOST"
   | "COMMUNITY_JOIN"
   | "FRIEND_REQUEST"
   | "FRIEND_ACCEPT"

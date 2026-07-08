@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { Errors } from "../lib/errors.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { requireAuth } from "../middleware/auth.js";
-import { createPostSchema, createCommentSchema, feedQuerySchema } from "../schemas/posts.js";
+import { createPostSchema, createCommentSchema, createRepostSchema, feedQuerySchema } from "../schemas/posts.js";
 import { notify } from "../lib/notify.js";
 
 export const postsRouter = Router();
@@ -25,45 +25,102 @@ const postSelect = (viewerId: string) =>
         profile: { select: { displayName: true, avatarUrl: true, headline: true } },
       },
     },
-    _count: { select: { likes: true, comments: true } },
-    // hack لطيف: بنجيب لايك المستخدم الحالي بس — لو المصفوفة فيها عنصر يبقى عامل لايك
+    _count: { select: { likes: true, comments: true, reposts: true } },
+    // hack لطيف: بنجيب لايك/repost المستخدم الحالي بس — لو المصفوفة فيها عنصر يبقى عامل الفعل ده
     likes: { where: { userId: viewerId }, select: { userId: true, type: true } },
+    reposts: { where: { userId: viewerId }, select: { comment: true } },
   }) as const;
 
 // بنحول شكل Prisma لشكل أنضف للـ client
 function shapePost(p: any) {
-  const { likes, _count, ...rest } = p;
-  return { ...rest, likeCount: _count.likes, commentCount: _count.comments, likedByMe: likes.length > 0, myReaction: likes[0]?.type ?? null };
+  const { likes, reposts, _count, ...rest } = p;
+  return {
+    ...rest,
+    likeCount: _count.likes,
+    commentCount: _count.comments,
+    likedByMe: likes.length > 0,
+    myReaction: likes[0]?.type ?? null,
+    repostCount: _count.reposts,
+    repostedByMe: reposts.length > 0,
+    myRepostComment: reposts[0]?.comment ?? null,
+  };
 }
 
+// المستخدم اللي عمل الـ repost — نفس شكل author بتاع البوست
+const reposterSelect = {
+  username: true,
+  profile: { select: { displayName: true, avatarUrl: true, headline: true } },
+} as const;
+
 // ---------------------------------------------------------------
-// GET /api/posts — الـ feed (cursor pagination + sort)
+// GET /api/posts — الـ feed (بوستات + reposts متدمجين، مرتبين بالتاريخ أو باللايكات)
+// بنجيب أحدث دفعة من الجدولين، بندمجهم، وبنرتبهم في الميموري — مش keyset pagination
+// حقيقي عبر جدولين، ده تبسيط مقصود يكفي حجم التطبيق ده
 // ---------------------------------------------------------------
 postsRouter.get(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
     const q = feedQuerySchema.parse(req.query);
+    const viewerId = req.user!.userId;
+    const FETCH_CAP = 300;
 
-    const posts = await prisma.post.findMany({
-      // الـ feed العام يعرض البوستات العامة بس — بوستات المجتمعات والصفحات ليها صفحاتها
-      where: { communityId: null, pageId: null },
-      take: q.take + 1, // واحد زيادة عشان نعرف لو في صفحة بعد كده
-      ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
-      orderBy:
-        q.sort === "top"
-          ? [{ likes: { _count: "desc" } }, { createdAt: "desc" }]
-          : [{ createdAt: "desc" }],
-      select: postSelect(req.user!.userId),
-    });
+    const [posts, reposts] = await Promise.all([
+      prisma.post.findMany({
+        where: { communityId: null, pageId: null },
+        take: FETCH_CAP,
+        orderBy: { createdAt: "desc" },
+        select: postSelect(viewerId),
+      }),
+      prisma.repost.findMany({
+        where: { post: { communityId: null, pageId: null } },
+        take: FETCH_CAP,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          comment: true,
+          createdAt: true,
+          user: { select: reposterSelect },
+          post: { select: postSelect(viewerId) },
+        },
+      }),
+    ]);
 
-    const hasMore = posts.length > q.take;
-    const page = hasMore ? posts.slice(0, q.take) : posts;
+    type FeedItem =
+      | { kind: "post"; post: any; sortKey: [number, number] }
+      | { kind: "repost"; id: string; comment: string | null; createdAt: Date; reposter: any; post: any; sortKey: [number, number] };
+
+    const items: FeedItem[] = [
+      ...posts.map((p): FeedItem => {
+        const shaped = shapePost(p);
+        return { kind: "post", post: shaped, sortKey: [shaped.likeCount, +p.createdAt] };
+      }),
+      ...reposts.map((r): FeedItem => {
+        const shaped = shapePost(r.post);
+        return {
+          kind: "repost",
+          id: r.id,
+          comment: r.comment,
+          createdAt: r.createdAt,
+          reposter: r.user,
+          post: shaped,
+          sortKey: [shaped.likeCount, +r.createdAt],
+        };
+      }),
+    ];
+
+    items.sort((a, b) =>
+      q.sort === "top" ? b.sortKey[0] - a.sortKey[0] || b.sortKey[1] - a.sortKey[1] : b.sortKey[1] - a.sortKey[1]
+    );
+
+    const offset = q.cursor ? parseInt(q.cursor, 10) || 0 : 0;
+    const page = items.slice(offset, offset + q.take).map(({ sortKey, ...rest }) => rest);
+    const nextOffset = offset + q.take;
 
     res.json({
       ok: true,
-      posts: page.map(shapePost),
-      nextCursor: hasMore ? page[page.length - 1]!.id : null,
+      items: page,
+      nextCursor: nextOffset < items.length ? String(nextOffset) : null,
     });
   })
 );
@@ -91,6 +148,22 @@ postsRouter.post(
     });
 
     res.status(201).json({ ok: true, post: shapePost(post) });
+  })
+);
+
+// ---------------------------------------------------------------
+// GET /api/posts/:id — بوست واحد (permalink — رابط الـ Share)
+// ---------------------------------------------------------------
+postsRouter.get(
+  "/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const post = await prisma.post.findUnique({
+      where: { id: req.params.id! },
+      select: postSelect(req.user!.userId),
+    });
+    if (!post) throw Errors.notFound("Post");
+    res.json({ ok: true, post: shapePost(post) });
   })
 );
 
@@ -141,6 +214,78 @@ postsRouter.post(
     const likeCount = await prisma.like.count({ where: { postId } });
     const mine = await prisma.like.findUnique({ where: { userId_postId: { userId, postId } } });
     res.json({ ok: true, liked: !!mine, myReaction: mine?.type ?? null, likeCount });
+  })
+);
+
+// ---------------------------------------------------------------
+// POST /api/posts/:id/repost — toggle: عمل repost لو مش عامل، شيله لو عامل
+// (بتعليق اقتباس اختياري — Quote Repost)
+// ---------------------------------------------------------------
+postsRouter.post(
+  "/:id/repost",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const postId = req.params.id!;
+    const userId = req.user!.userId;
+    const input = createRepostSchema.parse(req.body ?? {});
+
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, title: true, body: true },
+    });
+    if (!post) throw Errors.notFound("Post");
+
+    const existing = await prisma.repost.findUnique({
+      where: { userId_postId: { userId, postId } },
+    });
+
+    if (existing) {
+      // موجود بالفعل = شيله (سواء كان معاه اقتباس أو لأ)
+      await prisma.repost.delete({ where: { userId_postId: { userId, postId } } });
+    } else {
+      await prisma.repost.create({ data: { userId, postId, comment: input.comment ?? null } });
+
+      const reposter = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+      await notify({
+        userId: post.authorId,
+        actorId: userId,
+        type: "POST_REPOST",
+        message: `@${reposter?.username} reposted your post "${(post.title ?? post.body).slice(0, 40)}"`,
+        link: "/feed",
+      });
+    }
+
+    const repostCount = await prisma.repost.count({ where: { postId } });
+    const mine = await prisma.repost.findUnique({ where: { userId_postId: { userId, postId } } });
+    res.json({ ok: true, reposted: !!mine, myRepostComment: mine?.comment ?? null, repostCount });
+  })
+);
+
+// ---------------------------------------------------------------
+// GET /api/posts/:id/reposts — مين عمل repost للبوست
+// ---------------------------------------------------------------
+postsRouter.get(
+  "/:id/reposts",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const postId = req.params.id!;
+    const reposts = await prisma.repost.findMany({
+      where: { postId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        comment: true,
+        user: { select: { username: true, profile: { select: { displayName: true, avatarUrl: true } } } },
+      },
+    });
+    res.json({
+      ok: true,
+      reposts: reposts.map((r: any) => ({
+        comment: r.comment,
+        username: r.user.username,
+        displayName: r.user.profile?.displayName ?? r.user.username,
+        avatarUrl: r.user.profile?.avatarUrl ?? null,
+      })),
+    });
   })
 );
 

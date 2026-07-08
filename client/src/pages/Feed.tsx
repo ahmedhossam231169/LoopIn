@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import type { Post } from "../lib/types";
+import type { FeedItem } from "../lib/types";
 import { Navbar } from "../components/Navbar";
 import { Composer } from "../components/Composer";
 import { PostCard } from "../components/PostCard";
+import { Repeat2 } from "lucide-react";
 
 type Sort = "latest" | "top";
 
 export default function Feed() {
   const [sort, setSort] = useState<Sort>("latest");
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [items, setItems] = useState<FeedItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -19,10 +21,10 @@ export default function Feed() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api<{ ok: true; posts: Post[]; nextCursor: string | null }>(
+      const res = await api<{ ok: true; items: FeedItem[]; nextCursor: string | null }>(
         `/api/posts?sort=${s}&take=10`
       );
-      setPosts(res.posts);
+      setItems(res.items);
       setNextCursor(res.nextCursor);
     } catch {
       setError("Couldn't load the feed. Is the server running?");
@@ -39,10 +41,10 @@ export default function Feed() {
     if (!nextCursor) return;
     setLoadingMore(true);
     try {
-      const res = await api<{ ok: true; posts: Post[]; nextCursor: string | null }>(
+      const res = await api<{ ok: true; items: FeedItem[]; nextCursor: string | null }>(
         `/api/posts?sort=${sort}&take=10&cursor=${nextCursor}`
       );
-      setPosts((p) => [...p, ...res.posts]);
+      setItems((p) => [...p, ...res.items]);
       setNextCursor(res.nextCursor);
     } finally {
       setLoadingMore(false);
@@ -65,7 +67,7 @@ export default function Feed() {
     <>
       <Navbar />
       <main className="mx-auto max-w-2xl space-y-4 px-4 py-6">
-        <Composer onCreated={(post) => setPosts((p) => [post, ...p])} />
+        <Composer onCreated={(post) => setItems((p) => [{ kind: "post", post }, ...p])} />
 
         <div className="flex gap-1">
           {tab("latest", "Latest")}
@@ -83,16 +85,31 @@ export default function Feed() {
           </div>
         )}
 
-        {!loading && !error && posts.length === 0 && (
+        {!loading && !error && items.length === 0 && (
           <div className="card !p-8 text-center">
             <p className="font-semibold">The feed is empty</p>
             <p className="mt-1 text-sm text-mist-400">Be the first — share what you're building.</p>
           </div>
         )}
 
-        {posts.map((p) => (
-          <PostCard key={p.id} post={p} onDeleted={(id) => setPosts((prev) => prev.filter((x) => x.id !== id))} />
-        ))}
+        {items.map((item) => {
+          const onDeleted = (id: string) => setItems((prev) => prev.filter((x) => x.post.id !== id));
+          if (item.kind === "post") {
+            return <PostCard key={`post-${item.post.id}`} post={item.post} onDeleted={onDeleted} />;
+          }
+          return (
+            <div key={`repost-${item.id}`}>
+              <Link to={`/u/${item.reposter.username}`} className="mb-1.5 flex items-center gap-2 px-1 text-sm text-mist-400 hover:text-mist-100">
+                <Repeat2 size={14} className="text-emerald-400" />
+                <span className="font-semibold">{item.reposter.profile.displayName}</span> reposted
+              </Link>
+              {item.comment && (
+                <p className="mb-2 px-1 text-sm text-mist-100">{item.comment}</p>
+              )}
+              <PostCard post={item.post} onDeleted={onDeleted} />
+            </div>
+          );
+        })}
 
         {nextCursor && (
           <button

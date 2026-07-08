@@ -67,6 +67,7 @@ model User {
   shortlistedAs  ShortlistEntry[] @relation("ShortlistedAs")
   comments Comment[]
   likes    Like[]
+  reposts  Repost[]
 }
 
 // بيانات البروفايل — دي اللي فلتر الـ HR هيشتغل عليها
@@ -130,6 +131,7 @@ model Post {
 
   comments Comment[]
   likes    Like[]
+  reposts  Repost[]
 
   @@index([authorId, createdAt])
   @@index([type, createdAt])
@@ -167,6 +169,21 @@ model Like {
 
   @@id([userId, postId])
   @@index([postId])
+}
+
+model Repost {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  comment   String? // نص الاقتباس (اختياري)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId]) // مستخدم واحد repost واحد بس لكل بوست (toggle زي اللايك)
+  @@index([postId])
+  @@index([userId, createdAt])
 }
 
 // ---------- Phase 4: Messaging ----------
@@ -221,6 +238,7 @@ enum CommunityRole {
 enum NotificationType {
   POST_LIKE
   POST_COMMENT
+  POST_REPOST
   COMMUNITY_JOIN
   FRIEND_REQUEST
   FRIEND_ACCEPT

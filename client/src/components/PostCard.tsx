@@ -5,7 +5,7 @@ import { useAuth } from "../lib/auth";
 import { timeAgo, type Post, type Comment } from "../lib/types";
 import { CodeBlock } from "./CodeBlock";
 import { Markdown } from "./Markdown";
-import { Heart, MessageCircle, MoreHorizontal, Pencil, Trash2, ThumbsUp, HandHeart, PartyPopper, Angry } from "lucide-react";
+import { Heart, MessageCircle, MoreHorizontal, Pencil, Trash2, ThumbsUp, HandHeart, PartyPopper, Angry, Repeat2, Share2 } from "lucide-react";
 
 export function PostCard({ post, onDeleted }: { post: Post; onDeleted?: (id: string) => void }) {
   const { user } = useAuth();
@@ -49,6 +49,52 @@ export function PostCard({ post, onDeleted }: { post: Post; onDeleted?: (id: str
     } catch {
       setLiked(prev.liked); setMyReaction(prev.myReaction); setLikeCount(prev.likeCount);
     }
+  }
+
+  // الـ repost برضه optimistic زي اللايك
+  const [reposted, setReposted] = useState(post.repostedByMe);
+  const [repostCount, setRepostCount] = useState(post.repostCount);
+  const [repostPickerOpen, setRepostPickerOpen] = useState(false);
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [quoteDraft, setQuoteDraft] = useState("");
+  const [repostersOpen, setRepostersOpen] = useState(false);
+  const [reposters, setReposters] = useState<{ comment: string | null; username: string; displayName: string; avatarUrl: string | null }[] | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  async function toggleRepost(comment?: string) {
+    setRepostPickerOpen(false);
+    setQuoteOpen(false);
+    const prev = { reposted, repostCount };
+    setReposted(!reposted);
+    setRepostCount((c) => c + (reposted ? -1 : 1));
+    try {
+      const res = await api<{ ok: true; reposted: boolean; repostCount: number }>(
+        `/api/posts/${post.id}/repost`,
+        { method: "POST", body: JSON.stringify(comment ? { comment } : {}) }
+      );
+      setReposted(res.reposted);
+      setRepostCount(res.repostCount);
+      setQuoteDraft("");
+    } catch {
+      setReposted(prev.reposted);
+      setRepostCount(prev.repostCount);
+    }
+  }
+
+  async function openReposters() {
+    setRepostersOpen((o) => !o);
+    if (reposters === null) {
+      const res = await api<{ ok: true; reposts: any[] }>(`/api/posts/${post.id}/reposts`).catch(() => null);
+      setReposters(res?.reposts ?? []);
+    }
+  }
+
+  function shareLink() {
+    const url = `${window.location.origin}/post/${post.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 1500);
+    });
   }
 
   const [showComments, setShowComments] = useState(false);
@@ -253,7 +299,78 @@ export function PostCard({ post, onDeleted }: { post: Post; onDeleted?: (id: str
         <button onClick={openComments} className="flex items-center gap-1.5 hover:text-mist-100">
           <MessageCircle size={16} /> {commentCount}
         </button>
+
+        <div className="relative">
+          {repostPickerOpen && (
+            <div className="absolute bottom-full left-0 z-10 mb-1 w-32 rounded-lg border border-ink-700 bg-ink-800 py-1 text-sm shadow-xl">
+              <button onClick={() => toggleRepost()} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-ink-900">
+                <Repeat2 size={14} /> Repost
+              </button>
+              <button onClick={() => { setQuoteOpen(true); setRepostPickerOpen(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-ink-900">
+                <Pencil size={14} /> Quote
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => (reposted ? toggleRepost() : setRepostPickerOpen((o) => !o))}
+            onContextMenu={(e) => { e.preventDefault(); setRepostPickerOpen((o) => !o); }}
+            className={"flex items-center gap-1.5 transition-colors " + (reposted ? "text-emerald-400" : "hover:text-emerald-400")}
+            aria-pressed={reposted}
+            title="Repost"
+          >
+            <Repeat2 size={16} />
+          </button>
+        </div>
+        <button onClick={openReposters} className="text-sm hover:underline" title="Who reposted">
+          {repostCount}
+        </button>
+
+        <button onClick={shareLink} className="flex items-center gap-1.5 hover:text-mist-100" title="Copy link to post">
+          <Share2 size={16} /> {shareCopied ? "Copied!" : "Share"}
+        </button>
       </div>
+
+      {/* Quote repost box */}
+      {quoteOpen && (
+        <div className="mt-3 flex gap-2 border-t border-ink-700 pt-3">
+          <input
+            className="input-field !py-2 text-sm"
+            placeholder="Add a comment (optional)..."
+            value={quoteDraft}
+            onChange={(e) => setQuoteDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && toggleRepost(quoteDraft.trim() || undefined)}
+          />
+          <button onClick={() => toggleRepost(quoteDraft.trim() || undefined)} className="btn-primary !py-2 text-sm">
+            Repost
+          </button>
+          <button onClick={() => { setQuoteOpen(false); setQuoteDraft(""); }} className="btn-ghost !py-2 text-sm">
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Reposters list */}
+      {repostersOpen && (
+        <div className="mt-2 rounded-lg border border-ink-700 bg-ink-900 p-3">
+          {reposters === null ? (
+            <p className="text-xs text-mist-400">Loading...</p>
+          ) : reposters.length === 0 ? (
+            <p className="text-xs text-mist-400">No reposts yet.</p>
+          ) : (
+            <div className="max-h-48 space-y-1.5 overflow-y-auto">
+              {reposters.map((r) => (
+                <Link key={r.username} to={`/u/${r.username}`} className="flex items-center gap-2.5 rounded px-1 py-1 hover:bg-ink-800">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-700 text-xs font-bold">
+                    {r.avatarUrl ? <img src={r.avatarUrl} alt="" className="h-full w-full object-cover" /> : r.displayName[0]?.toUpperCase()}
+                  </div>
+                  <span className="text-sm">{r.displayName}</span>
+                  <Repeat2 size={14} className="ml-auto text-emerald-400" />
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Reactors list */}
       {reactorsOpen && (

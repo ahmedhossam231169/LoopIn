@@ -16,8 +16,8 @@ devconnect/
 ```bash
 cd server
 npm install
-cp .env.example .env        # عدّل DATABASE_URL بتاع Postgres عندك
-npx prisma migrate dev      # ينشئ الجداول من الـ schema (Users, Posts, Conversations, Messages...)
+cp .env.example .env       
+npx prisma migrate dev      
 npm run dev                 # http://localhost:4000/api/health
 ```
 
@@ -28,7 +28,7 @@ npm install
 npm run dev                 # http://localhost:5173
 ```
 
-الـ Vite proxy بيحوّل أي `/api/*` للـ backend تلقائيًا — مفيش CORS headaches في التطوير.
+
 
 ## Error handling philosophy
 

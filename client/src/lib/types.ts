@@ -60,7 +60,15 @@ export interface Post {
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
+  repostCount: number;
+  repostedByMe: boolean;
+  myRepostComment: string | null;
 }
+
+// عنصر في الـ feed — إما بوست عادي أو repost (مع اقتباس اختياري) لبوست حد تاني
+export type FeedItem =
+  | { kind: "post"; post: Post }
+  | { kind: "repost"; id: string; comment: string | null; createdAt: string; reposter: PostAuthor; post: Post };
 
 export interface Comment {
   id: string;
@@ -114,7 +122,7 @@ export interface CommunityDetail {
   memberPreview: CommunityMemberPreview[];
 }
 
-export type NotificationType = "POST_LIKE" | "POST_COMMENT" | "COMMUNITY_JOIN";
+export type NotificationType = "POST_LIKE" | "POST_COMMENT" | "POST_REPOST" | "COMMUNITY_JOIN";
 
 export interface AppNotification {
   id: string;

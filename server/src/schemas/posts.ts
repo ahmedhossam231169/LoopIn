@@ -33,6 +33,10 @@ export const createCommentSchema = z.object({
   body: z.string().min(1, "Comment can't be empty").max(2000, "Comment is too long"),
 });
 
+export const createRepostSchema = z.object({
+  comment: z.string().max(500, "Quote is too long").optional(),
+});
+
 // query params بتاعة الـ feed — بنعمل لها validation برضه
 export const feedQuerySchema = z.object({
   sort: z.enum(["latest", "top"]).default("latest"),
