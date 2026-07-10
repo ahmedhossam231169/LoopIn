@@ -26,6 +26,9 @@ const postSelect = (viewerId: string) =>
         profile: { select: { displayName: true, avatarUrl: true, headline: true } },
       },
     },
+    // مصدر البوست (لو جاي من مجتمع أو صفحة) — الفيد بيعرضه كبادج
+    community: { select: { name: true, slug: true } },
+    page: { select: { name: true, slug: true } },
     _count: { select: { likes: true, comments: true, reposts: true } },
     // hack لطيف: بنجيب لايك/repost المستخدم الحالي بس — لو المصفوفة فيها عنصر يبقى عامل الفعل ده
     likes: { where: { userId: viewerId }, select: { userId: true, type: true } },
@@ -66,15 +69,25 @@ postsRouter.get(
     const viewerId = req.user!.userId;
     const FETCH_CAP = 300;
 
+    // اللي بيظهر في الفيد: البوستات العامة + بوستات المجتمعات اللي أنا عضو فيها
+    // + بوستات الصفحات اللي أنا متابعها
+    const visibleToViewer = {
+      OR: [
+        { communityId: null, pageId: null },
+        { community: { members: { some: { userId: viewerId } } } },
+        { page: { followers: { some: { userId: viewerId } } } },
+      ],
+    };
+
     const [posts, reposts] = await Promise.all([
       prisma.post.findMany({
-        where: { communityId: null, pageId: null },
+        where: visibleToViewer,
         take: FETCH_CAP,
         orderBy: { createdAt: "desc" },
         select: postSelect(viewerId),
       }),
       prisma.repost.findMany({
-        where: { post: { communityId: null, pageId: null } },
+        where: { post: visibleToViewer },
         take: FETCH_CAP,
         orderBy: { createdAt: "desc" },
         select: {

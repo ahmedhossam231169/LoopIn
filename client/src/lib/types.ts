@@ -57,6 +57,9 @@ export interface Post {
   imageUrl?: string | null;
   createdAt: string;
   author: PostAuthor;
+  // مصدر البوست لو جاي من مجتمع أو صفحة (بيظهر كبادج في الفيد)
+  community?: { name: string; slug: string } | null;
+  page?: { name: string; slug: string } | null;
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;

@@ -224,7 +224,25 @@ export function PostCard({ post, onDeleted }: { post: Post; onDeleted?: (id: str
             {p.author.profile.displayName}{" "}
             <span className="font-normal text-mist-600">@{p.author.username}</span>
           </Link>
-          <p className="text-xs text-mist-400">{timeAgo(p.createdAt)}</p>
+          <p className="text-xs text-mist-400">
+            {timeAgo(p.createdAt)}
+            {p.community && (
+              <>
+                {" · in "}
+                <Link to={`/communities/${p.community.slug}`} className="font-semibold text-brand-400 hover:underline">
+                  {p.community.name}
+                </Link>
+              </>
+            )}
+            {p.page && (
+              <>
+                {" · from "}
+                <Link to={`/pages/${p.page.slug}`} className="font-semibold text-brand-400 hover:underline">
+                  {p.page.name}
+                </Link>
+              </>
+            )}
+          </p>
         </div>
 
         <div className="ml-auto flex items-center gap-2">
