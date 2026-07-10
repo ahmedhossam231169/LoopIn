@@ -57,6 +57,7 @@ export interface Post {
   imageUrl?: string | null;
   createdAt: string;
   author: PostAuthor;
+  pinned?: boolean; // مثبّت فوق فيد الكوميونتي/الصفحة
   // مصدر البوست لو جاي من مجتمع أو صفحة (بيظهر كبادج في الفيد)
   community?: { name: string; slug: string } | null;
   page?: { name: string; slug: string } | null;
@@ -120,9 +121,20 @@ export interface CommunityDetail {
   slug: string;
   description: string | null;
   category: string;
+  adminOnlyPosting: boolean;
+  isPrivate: boolean;
   memberCount: number;
   joinedByMe: boolean;
+  myRole: "ADMIN" | "MEMBER" | null;
+  requestedByMe: boolean;
   memberPreview: CommunityMemberPreview[];
+}
+
+export interface JoinRequest {
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  createdAt: string;
 }
 
 export type NotificationType = "POST_LIKE" | "POST_COMMENT" | "POST_REPOST" | "COMMUNITY_JOIN";

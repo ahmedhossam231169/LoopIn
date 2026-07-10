@@ -97,19 +97,29 @@ communitiesRouter.get(
         slug: true,
         description: true,
         category: true,
+        adminOnlyPosting: true,
+        isPrivate: true,
         createdAt: true,
         members: memberPreviewSelect,
       },
     });
     if (!community) throw Errors.notFound("Community");
 
+    // هل الزائر عنده طلب انضمام معلّق؟ (للكوميونتيهات الخاصة)
+    const myRequest = await prisma.communityJoinRequest.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId } },
+    });
+
     const { members, ...rest } = community as any;
+    const myMembership = members.find((m: any) => m.userId === userId);
     res.json({
       ok: true,
       community: {
         ...rest,
         memberCount: members.length,
-        joinedByMe: members.some((m: any) => m.userId === userId),
+        joinedByMe: !!myMembership,
+        myRole: myMembership?.role ?? null,
+        requestedByMe: !!myRequest,
         memberPreview: members.slice(0, 5).map((m: any) => ({
           username: m.user.username,
           displayName: m.user.profile?.displayName ?? m.user.username,
@@ -131,13 +141,45 @@ communitiesRouter.post(
     const userId = req.user!.userId;
     const community = await prisma.community.findFirst({
       where: { slug: req.params.slug! },
-      select: { id: true, name: true, slug: true },
+      select: { id: true, name: true, slug: true, isPrivate: true },
     });
     if (!community) throw Errors.notFound("Community");
 
     const existing = await prisma.communityMember.findUnique({
       where: { communityId_userId: { communityId: community.id, userId } },
     });
+
+    // كوميونتي خاص + مش عضو → الانضمام بطلب (toggle: لو في طلب معلّق بنلغيه)
+    if (community.isPrivate && !existing) {
+      const pendingRequest = await prisma.communityJoinRequest.findUnique({
+        where: { communityId_userId: { communityId: community.id, userId } },
+      });
+      if (pendingRequest) {
+        await prisma.communityJoinRequest.delete({
+          where: { communityId_userId: { communityId: community.id, userId } },
+        });
+        return res.json({ ok: true, joined: false, requested: false });
+      }
+
+      await prisma.communityJoinRequest.create({ data: { communityId: community.id, userId } });
+
+      // نبلّغ الأدمنّات إن في طلب جديد مستني مراجعة
+      const admins = await prisma.communityMember.findMany({
+        where: { communityId: community.id, role: "ADMIN" },
+        select: { userId: true },
+      });
+      const requester = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+      for (const admin of admins) {
+        await notify({
+          userId: admin.userId,
+          actorId: userId,
+          type: "COMMUNITY_REQUEST",
+          message: `@${requester?.username} requested to join ${community.name}`,
+          link: `/communities/${community.slug}`,
+        });
+      }
+      return res.json({ ok: true, joined: false, requested: true });
+    }
 
     if (existing) {
       // آخر admin ما يقدرش يسيب المجتمع من غير ما يسلّم الإدارة لحد تاني (تبسيط: نمنعه لو هو الوحيد)
@@ -194,6 +236,7 @@ const communityPostSelect = (viewerId: string) =>
     codeLanguage: true,
     codeContent: true,
     imageUrl: true,
+    pinned: true,
     createdAt: true,
     author: {
       select: {
@@ -214,17 +257,29 @@ communitiesRouter.get(
   "/:slug/posts",
   requireAuth,
   asyncHandler(async (req, res) => {
+    const userId = req.user!.userId;
     const community = await prisma.community.findFirst({
       where: { slug: req.params.slug! },
-      select: { id: true },
+      select: { id: true, isPrivate: true },
     });
     if (!community) throw Errors.notFound("Community");
 
+    // الكوميونتي الخاص: البوستات للأعضاء بس
+    if (community.isPrivate) {
+      const membership = await prisma.communityMember.findUnique({
+        where: { communityId_userId: { communityId: community.id, userId } },
+      });
+      if (!membership) {
+        return res.json({ ok: true, posts: [], private: true });
+      }
+    }
+
     const posts = await prisma.post.findMany({
       where: { communityId: community.id },
-      orderBy: { createdAt: "desc" },
+      // المثبّت الأول، وبعدين الأحدث
+      orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
       take: 30,
-      select: communityPostSelect(req.user!.userId),
+      select: communityPostSelect(userId),
     });
 
     res.json({ ok: true, posts: posts.map(shapeCommunityPost) });
@@ -238,7 +293,7 @@ communitiesRouter.post(
     const userId = req.user!.userId;
     const community = await prisma.community.findFirst({
       where: { slug: req.params.slug! },
-      select: { id: true },
+      select: { id: true, adminOnlyPosting: true },
     });
     if (!community) throw Errors.notFound("Community");
 
@@ -247,6 +302,11 @@ communitiesRouter.post(
       where: { communityId_userId: { communityId: community.id, userId } },
     });
     if (!membership) throw Errors.forbidden("Join the community to post in it");
+
+    // وضع المدونة: الأدمنّات بس اللي بينشروا
+    if (community.adminOnlyPosting && membership.role !== "ADMIN") {
+      throw Errors.forbidden("Only admins can post in this community");
+    }
 
     const input = createPostSchema.parse(req.body);
     const post = await prisma.post.create({
@@ -312,14 +372,197 @@ communitiesRouter.patch(
     const input = z.object({
       name: z.string().min(2).max(60).optional(),
       description: z.string().max(500).optional(),
+      adminOnlyPosting: z.boolean().optional(),
+      isPrivate: z.boolean().optional(),
     }).parse(req.body);
 
     const updated = await prisma.community.update({
       where: { id: community.id },
       data: input,
-      select: { id: true, name: true, slug: true, description: true },
+      select: { id: true, name: true, slug: true, description: true, adminOnlyPosting: true, isPrivate: true },
     });
     res.json({ ok: true, community: updated });
+  })
+);
+
+// ---------------------------------------------------------------
+// DELETE /api/communities/:slug — حذف الكوميونتي نهائيًا (ADMIN بس)
+// البوستات والأعضاء والطلبات بيتمسحوا تلقائيًا (onDelete: Cascade)
+// ---------------------------------------------------------------
+communitiesRouter.delete(
+  "/:slug",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.userId;
+    const community = await prisma.community.findFirst({
+      where: { slug: req.params.slug! },
+      select: { id: true },
+    });
+    if (!community) throw Errors.notFound("Community");
+
+    const me = await prisma.communityMember.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId } },
+    });
+    if (!me || me.role !== "ADMIN") throw Errors.forbidden("Only community admins can delete it");
+
+    await prisma.community.delete({ where: { id: community.id } });
+    res.json({ ok: true });
+  })
+);
+
+// ---------------------------------------------------------------
+// GET /api/communities/:slug/requests — طلبات الانضمام المعلّقة (ADMIN بس)
+// POST /api/communities/:slug/requests/:username — قبول أو رفض
+// ---------------------------------------------------------------
+communitiesRouter.get(
+  "/:slug/requests",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.userId;
+    const community = await prisma.community.findFirst({
+      where: { slug: req.params.slug! },
+      select: { id: true },
+    });
+    if (!community) throw Errors.notFound("Community");
+
+    const me = await prisma.communityMember.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId } },
+    });
+    if (!me || me.role !== "ADMIN") throw Errors.forbidden("Only community admins can view requests");
+
+    const requests = await prisma.communityJoinRequest.findMany({
+      where: { communityId: community.id },
+      orderBy: { createdAt: "asc" },
+      select: {
+        createdAt: true,
+        user: { select: { username: true, profile: { select: { displayName: true, avatarUrl: true } } } },
+      },
+    });
+    res.json({
+      ok: true,
+      requests: requests.map((r: any) => ({
+        username: r.user.username,
+        displayName: r.user.profile?.displayName ?? r.user.username,
+        avatarUrl: r.user.profile?.avatarUrl ?? null,
+        createdAt: r.createdAt,
+      })),
+    });
+  })
+);
+
+communitiesRouter.post(
+  "/:slug/requests/:username",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.userId;
+    const { accept } = z.object({ accept: z.boolean() }).parse(req.body);
+
+    const community = await prisma.community.findFirst({
+      where: { slug: req.params.slug! },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!community) throw Errors.notFound("Community");
+
+    const me = await prisma.communityMember.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId } },
+    });
+    if (!me || me.role !== "ADMIN") throw Errors.forbidden("Only community admins can respond to requests");
+
+    const target = await prisma.user.findUnique({
+      where: { username: req.params.username! },
+      select: { id: true },
+    });
+    if (!target) throw Errors.notFound("User");
+
+    const request = await prisma.communityJoinRequest.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId: target.id } },
+    });
+    if (!request) throw Errors.notFound("Join request");
+
+    // الطلب بيتمسح في الحالتين — ولو مقبول بنضيف العضوية
+    await prisma.communityJoinRequest.delete({
+      where: { communityId_userId: { communityId: community.id, userId: target.id } },
+    });
+
+    if (accept) {
+      await prisma.communityMember.create({
+        data: { communityId: community.id, userId: target.id },
+      }).catch(() => {}); // لو بقى عضو في السكة، مش مشكلة
+      await notify({
+        userId: target.id,
+        actorId: userId,
+        type: "COMMUNITY_REQUEST",
+        message: `Your request to join ${community.name} was accepted 🎉`,
+        link: `/communities/${community.slug}`,
+      });
+    }
+
+    res.json({ ok: true, accepted: accept });
+  })
+);
+
+// ---------------------------------------------------------------
+// PATCH /api/communities/:slug/members/:username/role — ترقية/تنزيل (ADMIN بس)
+// ---------------------------------------------------------------
+communitiesRouter.patch(
+  "/:slug/members/:username/role",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.userId;
+    const { role } = z.object({ role: z.enum(["ADMIN", "MEMBER"]) }).parse(req.body);
+
+    const community = await prisma.community.findFirst({
+      where: { slug: req.params.slug! },
+      select: { id: true },
+    });
+    if (!community) throw Errors.notFound("Community");
+
+    const me = await prisma.communityMember.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId } },
+    });
+    if (!me || me.role !== "ADMIN") throw Errors.forbidden("Only community admins can change roles");
+
+    const target = await prisma.user.findUnique({
+      where: { username: req.params.username! },
+      select: { id: true },
+    });
+    if (!target) throw Errors.notFound("User");
+
+    const targetMembership = await prisma.communityMember.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId: target.id } },
+    });
+    if (!targetMembership) throw Errors.notFound("Member");
+
+    // تنزيل أدمن: لازم يفضل أدمن واحد على الأقل
+    if (targetMembership.role === "ADMIN" && role === "MEMBER") {
+      const adminCount = await prisma.communityMember.count({
+        where: { communityId: community.id, role: "ADMIN" },
+      });
+      if (adminCount <= 1) throw Errors.badRequest("The community needs at least one admin");
+    }
+
+    await prisma.communityMember.update({
+      where: { communityId_userId: { communityId: community.id, userId: target.id } },
+      data: { role },
+    });
+
+    // نبلّغ العضو بالترقية/التنزيل
+    const communityInfo = await prisma.community.findUnique({
+      where: { id: community.id },
+      select: { name: true, slug: true },
+    });
+    await notify({
+      userId: target.id,
+      actorId: userId,
+      type: "COMMUNITY_ROLE",
+      message:
+        role === "ADMIN"
+          ? `You're now an admin of ${communityInfo?.name} 🛡️`
+          : `You're no longer an admin of ${communityInfo?.name}`,
+      link: `/communities/${communityInfo?.slug}`,
+    });
+
+    res.json({ ok: true, role });
   })
 );
 
@@ -345,6 +588,14 @@ communitiesRouter.delete(
     const target = await prisma.user.findUnique({ where: { username: req.params.username! }, select: { id: true } });
     if (!target) throw Errors.notFound("User");
     if (target.id === userId) throw Errors.badRequest("You can't remove yourself");
+
+    // أدمن ما يتشالش مباشرة — لازم يتنزّل member الأول (يمنع الأدمنّات يشيلوا بعض)
+    const targetMembership = await prisma.communityMember.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId: target.id } },
+    });
+    if (targetMembership?.role === "ADMIN") {
+      throw Errors.badRequest("Demote this admin to member before removing them");
+    }
 
     await prisma.communityMember.delete({
       where: { communityId_userId: { communityId: community.id, userId: target.id } },

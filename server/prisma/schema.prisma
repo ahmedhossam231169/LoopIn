@@ -68,6 +68,7 @@ model User {
   comments Comment[]
   likes    Like[]
   reposts  Repost[]
+  communityJoinRequests CommunityJoinRequest[]
 }
 
 // بيانات البروفايل — دي اللي فلتر الـ HR هيشتغل عليها
@@ -121,6 +122,7 @@ model Post {
   codeLanguage String?
   codeContent  String?
   imageUrl     String? // صورة مرفقة بالبوست (Cloudinary)
+  pinned       Boolean @default(false) // مثبّت فوق فيد الكوميونتي/الصفحة (أدمن بس)
   // البوست ممكن يكون في مجتمع أو صفحة (أو عادي في الـ feed لو الاتنين null)
   communityId String?
   community   Community? @relation(fields: [communityId], references: [id], onDelete: Cascade)
@@ -240,6 +242,8 @@ enum NotificationType {
   POST_COMMENT
   POST_REPOST
   COMMUNITY_JOIN
+  COMMUNITY_ROLE     // ترقية/تنزيل أدمن
+  COMMUNITY_REQUEST  // طلب انضمام جديد (للأدمن) أو قبول الطلب (للعضو)
   FRIEND_REQUEST
   FRIEND_ACCEPT
   NEW_FOLLOWER
@@ -251,12 +255,30 @@ model Community {
   slug        String   @unique
   description String?
   category    String // "Frontend", "Backend", "AI & ML", "DevOps", "Mobile"...
+  // وضع المدونة: لو true الأدمنّات بس اللي بينشروا (زي الـ Pages)
+  adminOnlyPosting Boolean @default(false)
+  // كوميونتي خاص: الانضمام بطلب وموافقة أدمن، والبوستات للأعضاء بس
+  isPrivate Boolean @default(false)
   createdAt   DateTime @default(now())
 
-  members CommunityMember[]
-  posts   Post[]
+  members      CommunityMember[]
+  posts        Post[]
+  joinRequests CommunityJoinRequest[]
 
   @@index([category])
+}
+
+// طلبات الانضمام للكوميونتيهات الخاصة — بتتمسح بعد القبول/الرفض
+model CommunityJoinRequest {
+  communityId String
+  userId      String
+  createdAt   DateTime @default(now())
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([communityId, userId])
+  @@index([userId])
 }
 
 model CommunityMember {

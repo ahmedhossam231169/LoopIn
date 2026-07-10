@@ -3,9 +3,10 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import type { PageDetail as PageDetailType, Post } from "../lib/types";
 import { Navbar } from "../components/Navbar";
-import { Building2, Rocket, Globe, Users, Package, FileText, ArrowLeft, Settings, X, Camera, ShieldPlus, ShieldMinus } from "lucide-react";
+import { Building2, Rocket, Globe, Users, Package, FileText, ArrowLeft, Settings, X, Camera, ShieldPlus, ShieldMinus, UserPlus, Trash2 } from "lucide-react";
 import { Composer } from "../components/Composer";
 import { PostCard } from "../components/PostCard";
+import { FriendPicker } from "../components/FriendPicker";
 
 const CATEGORY_ICON: Record<string, typeof Building2> = {
   Company: Building2, Project: Rocket, "Open Source": Globe, Community: Users, Product: Package,
@@ -39,6 +40,7 @@ export default function PageDetail() {
   const [saving, setSaving] = useState(false);
   const [followers, setFollowers] = useState<any[]>([]);
   const [newAdmin, setNewAdmin] = useState("");
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   async function openSettings() {
     if (!page) return;
@@ -47,6 +49,17 @@ export default function PageDetail() {
     setShowSettings(true);
     const res = await api<{ ok: true; followers: any[] }>(`/api/pages/${page.slug}/followers`).catch(() => null);
     if (res) setFollowers(res.followers);
+  }
+
+  async function deletePage() {
+    if (!page) return;
+    if (!confirm(`Delete "${page.name}" permanently? All its posts will be deleted too. This can't be undone.`)) return;
+    try {
+      await api(`/api/pages/${page.slug}`, { method: "DELETE" });
+      window.location.href = "/pages";
+    } catch (e: any) {
+      alert(e?.message ?? "Couldn't delete the page");
+    }
   }
 
   async function saveSettings(avatarUrl?: string) {
@@ -134,6 +147,9 @@ export default function PageDetail() {
                   {page.bio && <p className="mt-2 text-sm text-mist-100">{page.bio}</p>}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                <button onClick={() => setInviteOpen((o) => !o)} className="flex items-center justify-center rounded-lg border border-ink-700 p-2 text-mist-400 hover:bg-ink-900" title="Invite a friend to follow" aria-label="Invite a friend">
+                  <UserPlus size={17} />
+                </button>
                 {page.isAdmin && (
                   <button onClick={openSettings} className="flex items-center justify-center rounded-lg border border-ink-700 p-2 text-mist-400 hover:bg-ink-900" title="Page settings" aria-label="Page settings">
                     <Settings size={17} />
@@ -151,6 +167,14 @@ export default function PageDetail() {
                 </button>
                 </div>
               </div>
+
+              {inviteOpen && (
+                <FriendPicker
+                  title={`Invite a friend to follow ${page.name}`}
+                  message={`Check out the ${page.name} page on DevConnect — follow it for updates 👇\n${window.location.origin}/pages/${page.slug}`}
+                  onClose={() => setInviteOpen(false)}
+                />
+              )}
             </div>
 
             {/* Settings panel */}
@@ -209,6 +233,16 @@ export default function PageDetail() {
                     ))}
                   </div>
                 </div>
+
+                <div className="mt-5 border-t border-red-500/20 pt-4">
+                  <h3 className="mb-2 text-sm font-semibold text-red-400">Danger zone</h3>
+                  <button
+                    onClick={deletePage}
+                    className="flex items-center gap-1.5 rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10"
+                  >
+                    <Trash2 size={14} /> Delete page permanently
+                  </button>
+                </div>
               </div>
             )}
 
@@ -235,7 +269,23 @@ export default function PageDetail() {
             ) : (
               <div className="space-y-4">
                 {posts.map((p) => (
-                  <PostCard key={p.id} post={p} onDeleted={(id) => setPosts((prev) => prev.filter((x) => x.id !== id))} />
+                  <PostCard
+                    key={p.id}
+                    post={p}
+                    canModerate={page.isAdmin}
+                    onDeleted={(id) => setPosts((prev) => prev.filter((x) => x.id !== id))}
+                    onPinToggled={(id, pinned) =>
+                      setPosts((prev) =>
+                        [...prev]
+                          .map((x) => (x.id === id ? { ...x, pinned } : x))
+                          .sort(
+                            (a, b) =>
+                              Number(b.pinned ?? false) - Number(a.pinned ?? false) ||
+                              +new Date(b.createdAt) - +new Date(a.createdAt)
+                          )
+                      )
+                    }
+                  />
                 ))}
               </div>
             )}

@@ -2,13 +2,23 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { getSocket } from "../lib/socket";
-import { timeAgo, type Post, type Comment, type UserCard } from "../lib/types";
+import { timeAgo, type Post, type Comment } from "../lib/types";
 import { CodeBlock } from "./CodeBlock";
 import { Markdown } from "./Markdown";
-import { Heart, MessageCircle, MoreHorizontal, Pencil, Trash2, ThumbsUp, HandHeart, PartyPopper, Angry, Repeat2, Share2, LinkIcon, Send } from "lucide-react";
+import { FriendPicker } from "./FriendPicker";
+import { Heart, MessageCircle, MoreHorizontal, Pencil, Trash2, ThumbsUp, HandHeart, PartyPopper, Angry, Repeat2, Share2, LinkIcon, Send, Pin } from "lucide-react";
 
-export function PostCard({ post, onDeleted }: { post: Post; onDeleted?: (id: string) => void }) {
+export function PostCard({
+  post,
+  onDeleted,
+  canModerate = false, // أدمن الكوميونتي/الصفحة: يقدر يثبّت ويمسح بوستات غيره
+  onPinToggled,
+}: {
+  post: Post;
+  onDeleted?: (id: string) => void;
+  canModerate?: boolean;
+  onPinToggled?: (id: string, pinned: boolean) => void;
+}) {
   const { user } = useAuth();
   const isMine = user?.username === post.author.username;
 
@@ -101,38 +111,6 @@ export function PostCard({ post, onDeleted }: { post: Post; onDeleted?: (id: str
   // ---- الشير لصاحب: بنبعت البوست كرسالة في الشات (من غير ما يظهر في الفيد) ----
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
   const [friendPickerOpen, setFriendPickerOpen] = useState(false);
-  const [friends, setFriends] = useState<UserCard[] | null>(null);
-  const [sentTo, setSentTo] = useState<string | null>(null); // username اللي لسه متبعتله
-
-  async function openFriendPicker() {
-    setShareMenuOpen(false);
-    setFriendPickerOpen(true);
-    if (friends === null) {
-      const res = await api<{ ok: true; friends: UserCard[] }>("/api/friends").catch(() => null);
-      setFriends(res?.friends ?? []);
-    }
-  }
-
-  async function sendToFriend(username: string) {
-    setSentTo(username);
-    try {
-      // find-or-create المحادثة، وبعدين نبعت الرسالة على نفس قناة الشات
-      const conv = await api<{ ok: true; conversationId: string }>("/api/conversations", {
-        method: "POST",
-        body: JSON.stringify({ username }),
-      });
-      getSocket().emit("message:send", {
-        conversationId: conv.conversationId,
-        body: `Check out this post by ${post.author.profile.displayName} 👇\n${window.location.origin}/post/${post.id}`,
-      });
-      setTimeout(() => {
-        setFriendPickerOpen(false);
-        setSentTo(null);
-      }, 1200);
-    } catch {
-      setSentTo(null);
-    }
-  }
 
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<Comment[] | null>(null);
@@ -176,6 +154,19 @@ export function PostCard({ post, onDeleted }: { post: Post; onDeleted?: (id: str
       onDeleted?.(post.id);
     } catch {
       alert("Couldn't delete the post.");
+    }
+  }
+
+  const [pinned, setPinned] = useState(post.pinned ?? false);
+
+  async function togglePin() {
+    setMenuOpen(false);
+    try {
+      const res = await api<{ ok: true; pinned: boolean }>(`/api/posts/${post.id}/pin`, { method: "POST" });
+      setPinned(res.pinned);
+      onPinToggled?.(post.id, res.pinned);
+    } catch {
+      alert("Couldn't pin the post.");
     }
   }
 
@@ -246,17 +237,29 @@ export function PostCard({ post, onDeleted }: { post: Post; onDeleted?: (id: str
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {pinned && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-400">
+              <Pin size={11} /> Pinned
+            </span>
+          )}
           {p.type === "QUESTION" && (
             <span className="shrink-0 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-0.5 text-xs font-semibold text-cyan-400">
               Help Wanted
             </span>
           )}
-          {isMine && (
+          {(isMine || canModerate) && (
             <div className="relative">
               <button onClick={() => setMenuOpen((o) => !o)} className="flex items-center rounded px-2 py-1 text-mist-400 hover:bg-ink-900" aria-label="Post options"><MoreHorizontal size={18} /></button>
               {menuOpen && (
-                <div className="absolute right-0 z-10 mt-1 w-32 rounded-lg border border-ink-700 bg-ink-800 py-1 text-sm shadow-xl">
-                  <button onClick={() => { setEditing(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-ink-900"><Pencil size={14} /> Edit</button>
+                <div className="absolute right-0 z-10 mt-1 w-36 rounded-lg border border-ink-700 bg-ink-800 py-1 text-sm shadow-xl">
+                  {isMine && (
+                    <button onClick={() => { setEditing(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-ink-900"><Pencil size={14} /> Edit</button>
+                  )}
+                  {canModerate && (
+                    <button onClick={togglePin} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-ink-900">
+                      <Pin size={14} /> {pinned ? "Unpin" : "Pin to top"}
+                    </button>
+                  )}
                   <button onClick={() => { deletePost(); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-ink-900"><Trash2 size={14} /> Delete</button>
                 </div>
               )}
@@ -372,7 +375,10 @@ export function PostCard({ post, onDeleted }: { post: Post; onDeleted?: (id: str
               >
                 <Repeat2 size={14} /> Share to your profile
               </button>
-              <button onClick={openFriendPicker} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-ink-900">
+              <button
+                onClick={() => { setShareMenuOpen(false); setFriendPickerOpen(true); }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-ink-900"
+              >
                 <Send size={14} /> Send to a friend
               </button>
               <button
@@ -395,34 +401,10 @@ export function PostCard({ post, onDeleted }: { post: Post; onDeleted?: (id: str
 
       {/* Friend picker — بنبعت البوست في الشات */}
       {friendPickerOpen && (
-        <div className="mt-2 rounded-lg border border-ink-700 bg-ink-900 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-mist-400">Send to a friend</p>
-            <button onClick={() => setFriendPickerOpen(false)} className="text-xs text-mist-600 hover:text-mist-100">✕</button>
-          </div>
-          {friends === null ? (
-            <p className="text-xs text-mist-400">Loading friends...</p>
-          ) : friends.length === 0 ? (
-            <p className="text-xs text-mist-400">You have no friends yet — add some first.</p>
-          ) : (
-            <div className="max-h-48 space-y-1.5 overflow-y-auto">
-              {friends.map((f) => (
-                <button
-                  key={f.username}
-                  onClick={() => sendToFriend(f.username)}
-                  disabled={sentTo !== null}
-                  className="flex w-full items-center gap-2.5 rounded px-1 py-1 text-left hover:bg-ink-800 disabled:opacity-60"
-                >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-700 text-xs font-bold">
-                    {f.profile.avatarUrl ? <img src={f.profile.avatarUrl} alt="" className="h-full w-full object-cover" /> : f.profile.displayName[0]?.toUpperCase()}
-                  </div>
-                  <span className="text-sm">{f.profile.displayName}</span>
-                  {sentTo === f.username && <span className="ml-auto text-xs text-emerald-400">Sent ✓</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <FriendPicker
+          message={`Check out this post by ${post.author.profile.displayName} 👇\n${window.location.origin}/post/${post.id}`}
+          onClose={() => setFriendPickerOpen(false)}
+        />
       )}
 
       {/* Quote repost box */}

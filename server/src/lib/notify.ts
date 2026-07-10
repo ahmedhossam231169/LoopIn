@@ -6,6 +6,8 @@ type NotificationType =
   | "POST_COMMENT"
   | "POST_REPOST"
   | "COMMUNITY_JOIN"
+  | "COMMUNITY_ROLE"
+  | "COMMUNITY_REQUEST"
   | "FRIEND_REQUEST"
   | "FRIEND_ACCEPT"
   | "NEW_FOLLOWER";

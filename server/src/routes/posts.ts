@@ -26,6 +26,7 @@ const postSelect = (viewerId: string) =>
         profile: { select: { displayName: true, avatarUrl: true, headline: true } },
       },
     },
+    pinned: true,
     // مصدر البوست (لو جاي من مجتمع أو صفحة) — الفيد بيعرضه كبادج
     community: { select: { name: true, slug: true } },
     page: { select: { name: true, slug: true } },
@@ -55,6 +56,16 @@ const reposterSelect = {
   username: true,
   profile: { select: { displayName: true, avatarUrl: true, headline: true } },
 } as const;
+
+// [SECURITY] بوستات الكوميونتيهات الخاصة للأعضاء بس — الفلتر ده بيتطبق
+// في أي مكان بيرجّع بوست ممكن يكون من كوميونتي خاص (permalink، بروفايل، فيد)
+const communityVisibility = (viewerId: string) => ({
+  OR: [
+    { communityId: null },
+    { community: { isPrivate: false } },
+    { community: { members: { some: { userId: viewerId } } } },
+  ],
+});
 
 // ---------------------------------------------------------------
 // GET /api/posts — الـ feed (بوستات + reposts متدمجين، مرتبين بالتاريخ أو باللايكات)
@@ -172,8 +183,9 @@ postsRouter.get(
   "/:id",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const post = await prisma.post.findUnique({
-      where: { id: req.params.id! },
+    // [SECURITY] findFirst + فلتر الرؤية: بوست الكوميونتي الخاص مايتشافش بالرابط المباشر
+    const post = await prisma.post.findFirst({
+      where: { id: req.params.id!, ...communityVisibility(req.user!.userId) },
       select: postSelect(req.user!.userId),
     });
     if (!post) throw Errors.notFound("Post");
@@ -392,14 +404,15 @@ postsRouter.get(
     const viewerId = req.user!.userId;
     const [posts, reposts] = await Promise.all([
       prisma.post.findMany({
-        where: { authorId: user.id },
+        // فلتر الرؤية: بوستات الكوميونتيهات الخاصة ماتظهرش في البروفايل لغير أعضائها
+        where: { authorId: user.id, ...communityVisibility(viewerId) },
         orderBy: { createdAt: "desc" },
         take: 30,
         select: postSelect(viewerId),
       }),
       // الـ reposts اللي عملها صاحب البروفايل — البوست الأصلي بيتعرض باسم كاتبه
       prisma.repost.findMany({
-        where: { userId: user.id },
+        where: { userId: user.id, post: communityVisibility(viewerId) },
         orderBy: { createdAt: "desc" },
         take: 30,
         select: {
@@ -469,7 +482,8 @@ postsRouter.patch(
 );
 
 // ---------------------------------------------------------------
-// DELETE /api/posts/:id — حذف بوست (صاحبه بس)
+// DELETE /api/posts/:id — حذف بوست
+// صاحبه، أو أدمن المجتمع/الصفحة اللي البوست جواها (moderation)
 // الـ likes والـ comments بيتحذفوا تلقائيًا (onDelete: Cascade في الـ schema)
 // ---------------------------------------------------------------
 postsRouter.delete(
@@ -477,17 +491,74 @@ postsRouter.delete(
   requireAuth,
   asyncHandler(async (req, res) => {
     const postId = req.params.id!;
+    const userId = req.user!.userId;
     const existing = await prisma.post.findUnique({
       where: { id: postId },
-      select: { authorId: true },
+      select: { authorId: true, communityId: true, pageId: true },
     });
     if (!existing) throw Errors.notFound("Post");
-    if (existing.authorId !== req.user!.userId) {
+
+    let allowed = existing.authorId === userId;
+    if (!allowed && existing.communityId) {
+      const membership = await prisma.communityMember.findUnique({
+        where: { communityId_userId: { communityId: existing.communityId, userId } },
+      });
+      allowed = membership?.role === "ADMIN";
+    }
+    if (!allowed && existing.pageId) {
+      const admin = await prisma.pageAdmin.findUnique({
+        where: { pageId_userId: { pageId: existing.pageId, userId } },
+      });
+      allowed = !!admin;
+    }
+    if (!allowed) {
       throw Errors.forbidden("You can only delete your own posts");
     }
 
     await prisma.post.delete({ where: { id: postId } });
     res.json({ ok: true });
+  })
+);
+
+// ---------------------------------------------------------------
+// POST /api/posts/:id/pin — تثبيت/فك تثبيت (أدمن الكوميونتي/الصفحة بس)
+// البوستات المثبتة بتظهر فوق فيد الكوميونتي/الصفحة
+// ---------------------------------------------------------------
+postsRouter.post(
+  "/:id/pin",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const postId = req.params.id!;
+    const userId = req.user!.userId;
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { pinned: true, communityId: true, pageId: true },
+    });
+    if (!post) throw Errors.notFound("Post");
+    if (!post.communityId && !post.pageId) {
+      throw Errors.badRequest("Only community or page posts can be pinned");
+    }
+
+    let isAdmin = false;
+    if (post.communityId) {
+      const membership = await prisma.communityMember.findUnique({
+        where: { communityId_userId: { communityId: post.communityId, userId } },
+      });
+      isAdmin = membership?.role === "ADMIN";
+    } else if (post.pageId) {
+      const admin = await prisma.pageAdmin.findUnique({
+        where: { pageId_userId: { pageId: post.pageId, userId } },
+      });
+      isAdmin = !!admin;
+    }
+    if (!isAdmin) throw Errors.forbidden("Only admins can pin posts");
+
+    const updated = await prisma.post.update({
+      where: { id: postId },
+      data: { pinned: !post.pinned },
+      select: { pinned: true },
+    });
+    res.json({ ok: true, pinned: updated.pinned });
   })
 );
 

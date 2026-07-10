@@ -21,7 +21,7 @@ const createPageSchema = z.object({
 const postSelect = (viewerId: string) =>
   ({
     id: true, type: true, title: true, body: true,
-    codeLanguage: true, codeContent: true, createdAt: true,
+    codeLanguage: true, codeContent: true, pinned: true, createdAt: true,
     author: { select: { username: true, profile: { select: { displayName: true, avatarUrl: true, headline: true } } } },
     _count: { select: { likes: true, comments: true } },
     likes: { where: { userId: viewerId }, select: { userId: true, type: true } },
@@ -102,7 +102,8 @@ pagesRouter.get(
 
     const posts = await prisma.post.findMany({
       where: { pageId: page.id },
-      orderBy: { createdAt: "desc" },
+      // المثبّت الأول، وبعدين الأحدث
+      orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
       take: 30,
       select: postSelect(userId),
     });
@@ -268,6 +269,20 @@ pagesRouter.delete(
     if (!user) throw Errors.notFound("User");
     if (user.id === req.user!.userId) throw Errors.badRequest("You can't remove yourself");
     await prisma.pageAdmin.delete({ where: { pageId_userId: { pageId: page.id, userId: user.id } } }).catch(() => {});
+    res.json({ ok: true });
+  })
+);
+
+// ---------------------------------------------------------------
+// DELETE /api/pages/:slug — حذف الصفحة نهائيًا (ADMIN بس)
+// البوستات والمتابعين بيتمسحوا تلقائيًا (onDelete: Cascade)
+// ---------------------------------------------------------------
+pagesRouter.delete(
+  "/:slug",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const page = await requirePageAdmin(req.params.slug!, req.user!.userId);
+    await prisma.page.delete({ where: { id: page.id } });
     res.json({ ok: true });
   })
 );
