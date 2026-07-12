@@ -5,7 +5,7 @@ import { asyncHandler } from "../middleware/errorHandler.js";
 import { requireAuth } from "../middleware/auth.js";
 import { createPostSchema, createCommentSchema, createRepostSchema, feedQuerySchema } from "../schemas/posts.js";
 import { notify } from "../lib/notify.js";
-import { assertNotBlocked } from "../lib/blocks.js";
+import { assertNotBlocked, isBlockedBetween } from "../lib/blocks.js";
 
 export const postsRouter = Router();
 
@@ -422,6 +422,8 @@ postsRouter.get(
     if (!user) throw Errors.notFound("User");
 
     const viewerId = req.user!.userId;
+    // [SECURITY BUG-04] المحظور مايشوفش بوستات اللي حظره
+    if (await isBlockedBetween(viewerId, user.id)) throw Errors.notFound("User");
     const [posts, reposts] = await Promise.all([
       prisma.post.findMany({
         // فلتر الرؤية: بوستات الكوميونتيهات الخاصة ماتظهرش في البروفايل لغير أعضائها

@@ -60,6 +60,7 @@ Each area was also reviewed for happy-path, edge (empty / max-length / unicode-A
 - **Expected:** For `isPrivate` communities, roster and previews are members-only (consistent with `/:slug/posts`, which *does* check).
 - **Actual:** No privacy check on these two endpoints.
 - **Suggested fix:** In both handlers, if `community.isPrivate` and the caller has no `CommunityMember` row, omit the roster/preview (return counts only or 403), matching the posts endpoint.
+- **✅ FIXED:** `GET /:slug/members` now returns 403 to non-members of a private community; `GET /:slug` returns an empty `memberPreview` to non-members (count is kept — it's not PII). Members are unaffected. Verified: `security.spec.ts` BUG-03 block 3/3 PASS (non-member 403 + empty preview, member still sees the roster).
 
 ### BUG-04 — Block is interaction-only; reads are not blocked · **MEDIUM**
 - **Affected:** read paths lacking any block/visibility filter: `src/routes/profiles.ts:106` (`GET /:username`), `src/routes/posts.ts:394` (`GET /user/:username`), `src/routes/search.ts`, `profiles.ts:148` (github-projects).
@@ -67,6 +68,7 @@ Each area was also reviewed for happy-path, edge (empty / max-length / unicode-A
 - **Expected:** Per the schema comment ("لو A حظر B، مايشوفش بعض" — they shouldn't see each other), a block should also hide profiles/posts/search between the two parties.
 - **Actual:** `assertNotBlocked` is enforced on writes (friend/follow/message/like/comment/repost) but never on reads, so a blocked user can still monitor the blocker.
 - **Suggested fix:** Add a block check to profile/user-posts/search reads (filter out or 404 when a block exists in either direction). Centralize as e.g. `assertNotBlockedOrHide(viewer, target)`.
+- **✅ FIXED:** Added `isBlockedBetween(a, b)` (`lib/blocks.ts`). `GET /api/profiles/:username`, `GET /api/profiles/:username/github-projects`, and `GET /api/posts/user/:username` now return 404 when a block exists in either direction (mutual invisibility, avoids revealing the block); `GET /api/search` filters out blocked users and their posts via a `notBlocked` relation clause. Verified: `security.spec.ts` BUG-04 block PASS (blocked user gets 404 on profile/posts and is absent from search; a non-blocked third party still sees the profile).
 
 ### BUG-05 — Password reset does not invalidate existing sessions · **MEDIUM**
 - **Affected:** `src/lib/jwt.ts` (stateless 7-day tokens, no version/jti), `src/routes/auth.ts` `reset-password` (308) and `login`.
@@ -105,7 +107,7 @@ Each area was also reviewed for happy-path, edge (empty / max-length / unicode-A
 
 - **Executable checks authored:** 20 (in `src/tests/security.spec.ts`), split ~11 vulnerability probes and ~9 positive controls.
 - **Expected outcome when run against the current code:** ~9 controls **PASS**, and BUG-01–BUG-04 assertions report **VULN** (the suite prints a `passed / vulnerabilities / test-failures` tally).
-- **Confirmed issues:** 2 High, 4 Medium, 3 Low. **BUG-01 and BUG-02 are now fixed** (verified: suite reports `22 passed · 4 vulnerabilities`); BUG-03–BUG-09 remain open.
+- **Confirmed issues:** 2 High, 4 Medium, 3 Low. **BUG-01–BUG-04 are now fixed** (verified: suite reports `29 passed · 0 vulnerabilities · 0 test-failures`, existing specs still green); BUG-05–BUG-09 remain open (session revocation, IP rate-limit, timing enumeration, email subject escaping, feed paging).
 
 **Top risks, in order:**
 1. **BUG-01** — self-serve RECRUITER role turns bulk developer PII into an open endpoint.

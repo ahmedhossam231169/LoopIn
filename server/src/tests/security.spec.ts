@@ -184,29 +184,36 @@ async function main() {
   }
 
   // ===============================================================
-  // BUG-03 (MEDIUM) — Private community roster/details leak to non-members
+  // BUG-03 (MEDIUM → FIXED) — Private roster/details hidden from non-members
   // ===============================================================
-  console.log("\nBUG-03  Private community roster/details exposed to non-members");
+  console.log("\nBUG-03  Private community roster/details hidden from non-members");
   {
     const members = await req("GET", `/api/communities/${slug}/members`, outsider.token);
     check(
-      "GET /communities/:slug/members returns full roster to non-member",
-      members.status === 200 && (members.data?.members?.length ?? 0) > 0 ? "VULN" : "PASS",
-      `status ${members.status}, members=${members.data?.members?.length ?? "-"}`
+      "GET /communities/:slug/members blocked for non-member (403)",
+      members.status === 403 ? "PASS" : "VULN",
+      `status ${members.status}`
     );
     const detail = await req("GET", `/api/communities/${slug}`, outsider.token);
     check(
-      "GET /communities/:slug exposes memberPreview to non-member",
-      detail.status === 200 && (detail.data?.community?.memberPreview?.length ?? 0) > 0 ? "VULN" : "PASS",
+      "GET /communities/:slug hides memberPreview from non-member",
+      detail.status === 200 && (detail.data?.community?.memberPreview?.length ?? 0) === 0 ? "PASS" : "VULN",
       `previewCount=${detail.data?.community?.memberPreview?.length ?? "-"}`
+    );
+    // positive control: العضو لسه بيشوف الروستر
+    const memberRoster = await req("GET", `/api/communities/${slug}/members`, member.token);
+    check(
+      "control: member CAN still see private community roster",
+      memberRoster.status === 200 && (memberRoster.data?.members?.length ?? 0) > 0 ? "PASS" : "VULN",
+      `status ${memberRoster.status}, members=${memberRoster.data?.members?.length ?? "-"}`
     );
   }
 
   // ===============================================================
-  // BUG-04 (MEDIUM) — Block does not prevent viewing (read-side bypass)
-  //   owner يحظر outsider، لكن outsider لسه بيشوف بروفايله وبوستاته
+  // BUG-04 (MEDIUM → FIXED) — Block hides blocker from blocked user's reads
+  //   owner يحظر outsider، وبعدها outsider مايشوفش بروفايله/بوستاته/في البحث
   // ===============================================================
-  console.log("\nBUG-04  Blocked user can still view blocker's profile & posts");
+  console.log("\nBUG-04  Block hides blocker from the blocked user's reads");
   {
     const block = await req("POST", `/api/moderation/block/${outsider.username}`, owner.token);
     check("control: block created", block.data?.blocked ? "PASS" : "FAIL", `blocked=${block.data?.blocked}`);
@@ -214,23 +221,37 @@ async function main() {
     // تأكيد إن الحظر شغّال على التفاعل (خط الدفاع الموجود)
     const follow = await req("POST", `/api/friends/follow/${owner.username}`, outsider.token);
     check(
-      "control: blocked user CANNOT follow (interaction is blocked)",
+      "control: blocked user CANNOT follow (interaction blocked)",
       follow.status === 403 ? "PASS" : "VULN",
       `status ${follow.status}`
     );
 
-    // لكن القراءة مش محجوبة
+    // والقراءة كمان بقت محجوبة
     const profile = await req("GET", `/api/profiles/${owner.username}`, outsider.token);
     check(
-      "blocked user can still GET blocker's profile",
-      profile.status === 200 ? "VULN" : "PASS",
+      "blocked user CANNOT GET blocker's profile (404)",
+      profile.status === 404 ? "PASS" : "VULN",
       `status ${profile.status}`
     );
     const posts = await req("GET", `/api/posts/user/${owner.username}`, outsider.token);
     check(
-      "blocked user can still GET blocker's posts",
-      posts.status === 200 ? "VULN" : "PASS",
+      "blocked user CANNOT GET blocker's posts (404)",
+      posts.status === 404 ? "PASS" : "VULN",
       `status ${posts.status}`
+    );
+    const search = await req("GET", `/api/search?q=${encodeURIComponent(owner.username)}`, outsider.token);
+    const inResults = (search.data?.users ?? []).some((u: any) => u.username === owner.username);
+    check(
+      "blocked user does NOT find blocker in search",
+      !inResults ? "PASS" : "VULN",
+      `found=${inResults}`
+    );
+    // positive control: طرف تالت مش محظور لسه بيشوف البروفايل
+    const memberView = await req("GET", `/api/profiles/${owner.username}`, member.token);
+    check(
+      "control: non-blocked user CAN still view the profile",
+      memberView.status === 200 ? "PASS" : "VULN",
+      `status ${memberView.status}`
     );
   }
 
