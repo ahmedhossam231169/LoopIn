@@ -67,6 +67,18 @@ const communityVisibility = (viewerId: string) => ({
   ],
 });
 
+// [SECURITY BUG-02] الموارد الفرعية للبوست (كومنتات/رياكشنز/ريبوستات/لايك/كومنت/ريبوست)
+// كانت بتتجاهل فلتر الرؤية اللي الـ permalink بيطبّقه، فحد مش عضو في كوميونتي خاص
+// كان يقدر يقرا ويتفاعل مع بوستاته بمجرد معرفة الـ id. الدالة دي بترمي 404 لو
+// البوست مش موجود أو مش مرئي للـ viewer — نفس سلوك GET /:id بالظبط.
+async function assertPostVisible(postId: string, viewerId: string) {
+  const visible = await prisma.post.findFirst({
+    where: { id: postId, ...communityVisibility(viewerId) },
+    select: { id: true },
+  });
+  if (!visible) throw Errors.notFound("Post");
+}
+
 // ---------------------------------------------------------------
 // GET /api/posts — الـ feed (بوستات + reposts متدمجين، مرتبين بالتاريخ أو باللايكات)
 // بنجيب أحدث دفعة من الجدولين، بندمجهم، وبنرتبهم في الميموري — مش keyset pagination
@@ -203,8 +215,10 @@ postsRouter.post(
     const postId = req.params.id!;
     const userId = req.user!.userId;
 
-    const post = await prisma.post.findUnique({
-      where: { id: postId },
+    // [SECURITY BUG-02] findFirst + فلتر الرؤية: بوست الكوميونتي الخاص
+    // مايتفاعلش معاه غير أعضاؤه — نفس حماية الـ permalink
+    const post = await prisma.post.findFirst({
+      where: { id: postId, ...communityVisibility(userId) },
       select: { id: true, authorId: true, title: true, body: true },
     });
     if (!post) throw Errors.notFound("Post");
@@ -256,8 +270,10 @@ postsRouter.post(
     const userId = req.user!.userId;
     const input = createRepostSchema.parse(req.body ?? {});
 
-    const post = await prisma.post.findUnique({
-      where: { id: postId },
+    // [SECURITY BUG-02] findFirst + فلتر الرؤية: بوست الكوميونتي الخاص
+    // مايتفاعلش معاه غير أعضاؤه — نفس حماية الـ permalink
+    const post = await prisma.post.findFirst({
+      where: { id: postId, ...communityVisibility(userId) },
       select: { id: true, authorId: true, title: true, body: true },
     });
     if (!post) throw Errors.notFound("Post");
@@ -297,6 +313,7 @@ postsRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const postId = req.params.id!;
+    await assertPostVisible(postId, req.user!.userId); // [SECURITY BUG-02]
     const reposts = await prisma.repost.findMany({
       where: { postId },
       orderBy: { createdAt: "desc" },
@@ -324,6 +341,7 @@ postsRouter.get(
   "/:id/comments",
   requireAuth,
   asyncHandler(async (req, res) => {
+    await assertPostVisible(req.params.id!, req.user!.userId); // [SECURITY BUG-02]
     const comments = await prisma.comment.findMany({
       where: { postId: req.params.id! },
       orderBy: { createdAt: "asc" },
@@ -353,8 +371,10 @@ postsRouter.post(
     const input = createCommentSchema.parse(req.body);
     const postId = req.params.id!;
 
-    const post = await prisma.post.findUnique({
-      where: { id: postId },
+    // [SECURITY BUG-02] findFirst + فلتر الرؤية: مايتكومنتش على بوست كوميونتي خاص
+    // إلا لأعضائه — نفس حماية الـ permalink
+    const post = await prisma.post.findFirst({
+      where: { id: postId, ...communityVisibility(req.user!.userId) },
       select: { id: true, authorId: true, title: true, body: true },
     });
     if (!post) throw Errors.notFound("Post");
@@ -570,6 +590,7 @@ postsRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const postId = req.params.id!;
+    await assertPostVisible(postId, req.user!.userId); // [SECURITY BUG-02]
     const reactions = await prisma.like.findMany({
       where: { postId },
       select: {

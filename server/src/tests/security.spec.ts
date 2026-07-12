@@ -109,8 +109,8 @@ async function main() {
     name: `Secret Guild ${TAG}`, description: "private", category: "Backend",
   });
   const slug = created.data?.community?.slug;
-  await req("PATCH", `/api/communities/${slug}`, owner.token, { isPrivate: true });
-  await req("POST", `/api/communities/${slug}/join`, member.token); // عضو عادي
+  await req("POST", `/api/communities/${slug}/join`, member.token); // ينضم والكوميونتي لسه عام
+  await req("PATCH", `/api/communities/${slug}`, owner.token, { isPrivate: true }); // بعدين يبقى خاص
   // owner ينشر بوست جوه الكوميونتي الخاص
   const secretPost = await req("POST", `/api/communities/${slug}/posts`, owner.token, {
     type: "TEXT", body: `TOP SECRET internal note ${TAG}`,
@@ -123,42 +123,63 @@ async function main() {
   //   permalink GET /posts/:id بيتحجب صح، لكن /comments /reactions /reposts
   //   و POST like/comment/repost مش بيتحققوا من العضوية أو الرؤية
   // ===============================================================
-  console.log("BUG-02  Outsider accesses/interacts with private-community post");
+  console.log("BUG-02  Private-community post sub-resources gated by visibility");
   {
     // القراءة المباشرة للـ permalink المفروض تترفض (خط الدفاع الشغّال)
     const permalink = await req("GET", `/api/posts/${postId}`, outsider.token);
     check(
-      "control: GET /posts/:id permalink IS blocked for outsider",
+      "control: GET /posts/:id permalink blocked for outsider",
       permalink.status === 404 ? "PASS" : "VULN",
       `status ${permalink.status}`
     );
 
     const comments = await req("GET", `/api/posts/${postId}/comments`, outsider.token);
     check(
-      "GET /posts/:id/comments leaks to outsider",
-      comments.status === 200 ? "VULN" : "PASS",
+      "GET /posts/:id/comments blocked for outsider (404)",
+      comments.status === 404 ? "PASS" : "VULN",
       `status ${comments.status}`
     );
 
     const reactions = await req("GET", `/api/posts/${postId}/reactions`, outsider.token);
     check(
-      "GET /posts/:id/reactions leaks to outsider",
-      reactions.status === 200 ? "VULN" : "PASS",
+      "GET /posts/:id/reactions blocked for outsider (404)",
+      reactions.status === 404 ? "PASS" : "VULN",
       `status ${reactions.status}`
+    );
+
+    const reposts = await req("GET", `/api/posts/${postId}/reposts`, outsider.token);
+    check(
+      "GET /posts/:id/reposts blocked for outsider (404)",
+      reposts.status === 404 ? "PASS" : "VULN",
+      `status ${reposts.status}`
     );
 
     const like = await req("POST", `/api/posts/${postId}/like`, outsider.token, { type: "LIKE" });
     check(
-      "POST /posts/:id/like succeeds for outsider on private post",
-      like.status === 200 && like.data?.liked ? "VULN" : "PASS",
+      "POST /posts/:id/like blocked for outsider (404)",
+      like.status === 404 ? "PASS" : "VULN",
       `status ${like.status}`
     );
 
     const comment = await req("POST", `/api/posts/${postId}/comments`, outsider.token, { body: "I can see this" });
     check(
-      "POST /posts/:id/comments succeeds for outsider on private post",
-      comment.status === 201 ? "VULN" : "PASS",
+      "POST /posts/:id/comments blocked for outsider (404)",
+      comment.status === 404 ? "PASS" : "VULN",
       `status ${comment.status}`
+    );
+
+    // positive control: العضو لسه بيقرا ويتفاعل عادي
+    const memberRead = await req("GET", `/api/posts/${postId}/comments`, member.token);
+    check(
+      "control: member CAN still read comments of private post",
+      memberRead.status === 200 ? "PASS" : "VULN",
+      `status ${memberRead.status}`
+    );
+    const memberLike = await req("POST", `/api/posts/${postId}/like`, member.token, { type: "LIKE" });
+    check(
+      "control: member CAN still like private post",
+      memberLike.status === 200 ? "PASS" : "VULN",
+      `status ${memberLike.status}`
     );
   }
 

@@ -52,6 +52,7 @@ Each area was also reviewed for happy-path, edge (empty / max-length / unicode-A
 - **Actual:** The sub-resource handlers only check `assertNotBlocked` (or nothing). Membership/visibility is never verified, so private-community discussion, reactor lists, and reposter lists leak, and outsiders can inject likes/comments (also generating notifications to the author).
 - **Why it matters:** cuids aren't secret — they appear in notification links, share URLs, and are retained by ex-members. Defeats the core "private community" guarantee.
 - **Suggested fix:** Add a shared guard: load the post's `communityId`, and for every read/write sub-resource resolve it through `communityVisibility(viewerId)` (reads) or an explicit membership check (writes), returning 404/403 for non-members — mirror the permalink handler.
+- **✅ FIXED:** Added `assertPostVisible(postId, viewerId)` (`routes/posts.ts`) which reuses `communityVisibility()` and throws 404 when the post isn't visible. The three GET sub-resources (`/comments`, `/reactions`, `/reposts`) call it up front; the write handlers (`/like`, `/comments`, `/repost`) changed their `findUnique` to `findFirst({ where: { id, ...communityVisibility(viewerId) } })`, so non-members get 404. Verified: `security.spec.ts` BUG-02 block now 8/8 PASS — outsider blocked on all six endpoints, and members can still read/like the private post; `communities.spec` (public-post like) still green.
 
 ### BUG-03 — Private community roster & preview exposed to non-members · **MEDIUM**
 - **Affected:** `src/routes/communities.ts:334` (`GET /:slug/members`, no membership check at all) and `:87` (`GET /:slug` returns `memberCount` + `memberPreview` regardless of privacy).
@@ -104,7 +105,7 @@ Each area was also reviewed for happy-path, edge (empty / max-length / unicode-A
 
 - **Executable checks authored:** 20 (in `src/tests/security.spec.ts`), split ~11 vulnerability probes and ~9 positive controls.
 - **Expected outcome when run against the current code:** ~9 controls **PASS**, and BUG-01–BUG-04 assertions report **VULN** (the suite prints a `passed / vulnerabilities / test-failures` tally).
-- **Confirmed issues:** 2 High, 4 Medium, 3 Low. **BUG-01 is now fixed** (opt-in approach, verified); BUG-02–BUG-09 remain open.
+- **Confirmed issues:** 2 High, 4 Medium, 3 Low. **BUG-01 and BUG-02 are now fixed** (verified: suite reports `22 passed · 4 vulnerabilities`); BUG-03–BUG-09 remain open.
 
 **Top risks, in order:**
 1. **BUG-01** — self-serve RECRUITER role turns bulk developer PII into an open endpoint.
