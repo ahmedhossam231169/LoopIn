@@ -23,6 +23,7 @@ const fullProfileSelect = {
   githubUrl: true,
   githubUsername: true,
   onboarded: true,
+  discoverable: true,
   skills: {
     select: { years: true, skill: { select: { name: true } } },
     orderBy: { years: "desc" },
