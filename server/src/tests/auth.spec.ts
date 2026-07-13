@@ -10,7 +10,7 @@ async function main() {
   const bad = registerSchema.safeParse({ email: "not-an-email", username: "a b!", password: "123", displayName: "F" });
   console.log("invalid register →", bad.success ? "PASSED?!" : bad.error.issues.map(i => i.path.join(".") + ": " + i.message).join(" | "));
 
-  const t = signToken({ userId: "u_123", role: "DEVELOPER" });
+  const t = signToken({ userId: "u_123", role: "DEVELOPER", tokenVersion: 0 });
   const p = verifyToken(t);
   console.log("jwt roundtrip →", p.userId === "u_123" && p.role === "DEVELOPER" ? "OK" : "FAIL");
 

@@ -10,6 +10,8 @@ if (!JWT_SECRET) {
 export interface TokenPayload {
   userId: string;
   role: "DEVELOPER" | "RECRUITER";
+  // [SECURITY BUG-05] لازم يطابق User.tokenVersion وقت التحقق — غير كده التوكن مبطّل
+  tokenVersion: number;
 }
 
 export function signToken(payload: TokenPayload): string {

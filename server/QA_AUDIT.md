@@ -76,6 +76,7 @@ Each area was also reviewed for happy-path, edge (empty / max-length / unicode-A
 - **Expected:** Resetting the password (the standard "recover from compromise" action) revokes all outstanding tokens.
 - **Actual:** No revocation mechanism; JWTs remain valid regardless of password change.
 - **Suggested fix:** Add a `tokenVersion` (or `sessionsValidFrom`) column to `User`; embed it in the JWT and compare in `requireAuth`/socket auth; bump it on `reset-password` (and offer it on explicit "log out other sessions").
+- **✅ FIXED:** Added `User.tokenVersion` (default 0), carried in the JWT payload (`lib/jwt.ts`). `requireAuth` (`middleware/auth.ts`) and the Socket.io handshake (`socket.ts`) now load the user's current `tokenVersion` and reject the token if it differs (`?? 0` keeps pre-existing tokens valid until the first reset). `reset-password` does `tokenVersion: { increment: 1 }`, instantly invalidating every outstanding session. Verified: `security.spec.ts` BUG-05 block 5/5 PASS (old token → 401 on REST and rejected by socket after reset; a fresh login still works); all existing specs green. **Trade-off:** this adds one indexed `User` lookup per authenticated request/socket connection — negligible here; cache in Redis if the request volume grows. **Deploy:** run `prisma db push` / a migration to add the column.
 
 ### BUG-06 — Rate-limit bypass via spoofable client IP · **MEDIUM (deployment-dependent)**
 - **Affected:** `src/index.ts:29` (`app.set("trust proxy", 1)`) + `src/middleware/rateLimit.ts` (IP-keyed limiters).
@@ -107,7 +108,7 @@ Each area was also reviewed for happy-path, edge (empty / max-length / unicode-A
 
 - **Executable checks authored:** 20 (in `src/tests/security.spec.ts`), split ~11 vulnerability probes and ~9 positive controls.
 - **Expected outcome when run against the current code:** ~9 controls **PASS**, and BUG-01–BUG-04 assertions report **VULN** (the suite prints a `passed / vulnerabilities / test-failures` tally).
-- **Confirmed issues:** 2 High, 4 Medium, 3 Low. **BUG-01–BUG-04 are now fixed** (verified: suite reports `29 passed · 0 vulnerabilities · 0 test-failures`, existing specs still green); BUG-05–BUG-09 remain open (session revocation, IP rate-limit, timing enumeration, email subject escaping, feed paging).
+- **Confirmed issues:** 2 High, 4 Medium, 3 Low. **BUG-01–BUG-05 are now fixed** (verified: suite reports `34 passed · 0 vulnerabilities · 0 test-failures`, existing specs still green); BUG-06–BUG-09 remain open (IP rate-limit, timing enumeration, email subject escaping, feed paging).
 
 **Top risks, in order:**
 1. **BUG-01** — self-serve RECRUITER role turns bulk developer PII into an open endpoint.

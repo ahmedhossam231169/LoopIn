@@ -105,7 +105,8 @@ authRouter.post(
       select: publicUserSelect,
     });
 
-    const token = signToken({ userId: user.id, role: user.role });
+    // [SECURITY BUG-05] مستخدم جديد → tokenVersion يبدأ من 0
+    const token = signToken({ userId: user.id, role: user.role, tokenVersion: 0 });
     res.status(201).json({ ok: true, user, token });
   })
 );
@@ -138,7 +139,7 @@ authRouter.post(
       select: publicUserSelect,
     });
 
-    const token = signToken({ userId: user.id, role: user.role });
+    const token = signToken({ userId: user.id, role: user.role, tokenVersion: user.tokenVersion });
     res.json({ ok: true, user: publicUser, token });
   })
 );
@@ -248,7 +249,7 @@ authRouter.get(
       });
     }
 
-    const token = signToken({ userId: user.id, role: user.role });
+    const token = signToken({ userId: user.id, role: user.role, tokenVersion: user.tokenVersion });
     // بنرجّع المستخدم للـ frontend والتوكن في الـ URL (الـ client هيلقطه ويخزنه)
     // ده رابط redirect فعلي (مش CORS whitelist)، فبناخد أول دومين مسموح بس
     const clientUrl = getAllowedOrigins()[0];
@@ -327,6 +328,8 @@ authRouter.post(
         passwordHash,
         resetTokenHash: null, // التوكن بيتحرق بعد الاستخدام — مايتستخدمش مرتين
         resetTokenExpiry: null,
+        // [SECURITY BUG-05] يبطّل كل الجلسات القديمة — أي JWT اتصدر قبل كده يترفض
+        tokenVersion: { increment: 1 },
       },
     });
 
@@ -424,7 +427,7 @@ authRouter.get(
       }
     }
 
-    const token = signToken({ userId: user.id, role: user.role });
+    const token = signToken({ userId: user.id, role: user.role, tokenVersion: user.tokenVersion });
     const clientUrl = getAllowedOrigins()[0];
     res.redirect(`${clientUrl}/auth/callback#token=${token}`); // [SECURITY] fragment مش بيتبعت للسيرفرات ولا بيتسجل في logs
   })
