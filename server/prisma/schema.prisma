@@ -250,6 +250,11 @@ model Message {
   // الرسالة ممكن تكون code snippet — زي الـ mockup
   codeLanguage   String?
   codeContent    String?
+  // مرفقات (صور وملفات على Cloudinary) — قسم Shared Media & Files في الديزاين
+  attachmentUrl  String?
+  attachmentType String? // "image" | "file"
+  attachmentName String? // اسم الملف الأصلي للعرض
+  attachmentSize Int?    // بالبايت
   createdAt      DateTime @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

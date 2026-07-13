@@ -4,7 +4,10 @@ import { useAuth } from "../lib/auth";
 import { getSocket } from "../lib/socket";
 import { timeAgo } from "../lib/types";
 import { AppShell } from "../components/AppShell";
-import { Users, ArrowLeft, Send, Info, X, Camera } from "lucide-react";
+import {
+  Users, ArrowLeft, Send, Info, X, Camera, Paperclip, FileText,
+  FileCode2, Download,
+} from "lucide-react";
 import { Link } from "react-router-dom";
 import { CodeBlock } from "../components/CodeBlock";
 
@@ -28,9 +31,29 @@ interface Message {
   body: string;
   codeLanguage: string | null;
   codeContent: string | null;
+  attachmentUrl: string | null;
+  attachmentType: "image" | "file" | null;
+  attachmentName: string | null;
+  attachmentSize: number | null;
   createdAt: string;
   sender?: { username: string; profile: { displayName: string; avatarUrl: string | null } } | null;
 }
+
+interface MediaAttachment {
+  id: string;
+  attachmentUrl: string;
+  attachmentType: "image" | "file";
+  attachmentName: string | null;
+  attachmentSize: number | null;
+  createdAt: string;
+}
+
+const fmtSize = (bytes: number | null) => {
+  if (bytes == null) return "";
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+};
 
 // بيحول روابط http(s) في نص الرسالة لروابط قابلة للضغط
 // روابط التطبيق نفسه (زي رابط بوست متشير) بتتفتح بـ react-router من غير reload
@@ -117,6 +140,68 @@ export default function Messages() {
   const [codeDraft, setCodeDraft] = useState("");
   const [codeLang, setCodeLang] = useState("typescript");
 
+  // مرفق جاهز للإرسال (اترفع على Cloudinary وبنستنى Send)
+  const [pendingAttachment, setPendingAttachment] = useState<{
+    url: string; type: "image" | "file"; name: string; size: number;
+  } | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // اللوحة اليمين (Shared Media & Files) — بتظهر على الشاشات الواسعة
+  const [media, setMedia] = useState<{ attachments: MediaAttachment[]; snippets: { id: string; codeLanguage: string | null }[] } | null>(null);
+  const [clearing, setClearing] = useState(false);
+
+  const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+  const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+  const uploadsEnabled = !!(CLOUD_NAME && UPLOAD_PRESET);
+
+  async function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) return; // حد 15MB
+    setUploadingFile(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("upload_preset", UPLOAD_PRESET ?? "");
+      // auto = يقبل صور وملفات (PDF, zip, code...)
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.secure_url) {
+        setPendingAttachment({
+          url: data.secure_url,
+          type: file.type.startsWith("image/") ? "image" : "file",
+          name: file.name,
+          size: file.size,
+        });
+      }
+    } finally {
+      setUploadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function loadMedia(conversationId: string) {
+    const res = await api<{ ok: true; attachments: MediaAttachment[]; snippets: { id: string; codeLanguage: string | null }[] }>(
+      `/api/conversations/${conversationId}/media`
+    ).catch(() => null);
+    if (res) setMedia({ attachments: res.attachments, snippets: res.snippets });
+  }
+
+  async function clearHistory() {
+    if (!activeId) return;
+    if (!window.confirm("Clear all messages in this conversation for everyone? This can't be undone.")) return;
+    setClearing(true);
+    try {
+      await api(`/api/conversations/${activeId}/messages`, { method: "DELETE" });
+      setMessages([]);
+      setMedia({ attachments: [], snippets: [] });
+      loadConversations();
+    } finally {
+      setClearing(false);
+    }
+  }
+
   const [newChatUser, setNewChatUser] = useState("");
   const [newChatError, setNewChatError] = useState<string | null>(null);
 
@@ -170,11 +255,13 @@ export default function Messages() {
   async function openConversation(id: string) {
     setActiveId(id);
     setPeerTyping(false);
+    setMedia(null);
     const res = await api<{ ok: true; messages: Message[]; other: OtherUser | null }>(
       `/api/conversations/${id}/messages`
     );
     setMessages(res.messages);
     setOther(res.other);
+    loadMedia(id); // اللوحة اليمين — في الخلفية
   }
 
   // scroll لآخر رسالة
@@ -185,8 +272,9 @@ export default function Messages() {
   // ---- إرسال ----
   function send() {
     if (!activeId) return;
-    const body = codeMode ? draft.trim() || "Code snippet" : draft.trim();
-    if (!body && !codeMode) return;
+    const body = draft.trim();
+    // لازم في حاجة تتبعت: نص أو كود أو مرفق
+    if (!body && !(codeMode && codeDraft.trim()) && !pendingAttachment) return;
     if (codeMode && !codeDraft.trim()) return;
 
     getSocket().emit(
@@ -195,6 +283,14 @@ export default function Messages() {
         conversationId: activeId,
         body,
         ...(codeMode ? { codeLanguage: codeLang, codeContent: codeDraft } : {}),
+        ...(pendingAttachment
+          ? {
+              attachmentUrl: pendingAttachment.url,
+              attachmentType: pendingAttachment.type,
+              attachmentName: pendingAttachment.name,
+              attachmentSize: pendingAttachment.size,
+            }
+          : {}),
       },
       (ack: { ok: boolean; message?: Message }) => {
         if (ack.ok && ack.message) {
@@ -202,12 +298,14 @@ export default function Messages() {
             prev.some((x) => x.id === ack.message!.id) ? prev : [...prev, ack.message!]
           );
           loadConversations();
+          if (ack.message.attachmentUrl && activeId) loadMedia(activeId);
         }
       }
     );
     setDraft("");
     setCodeDraft("");
     setCodeMode(false);
+    setPendingAttachment(null);
   }
 
   // ---- typing إشعار مع debounce ----
@@ -400,6 +498,34 @@ export default function Messages() {
                             <CodeBlock code={m.codeContent} language={m.codeLanguage} />
                           </div>
                         )}
+                        {m.attachmentUrl && m.attachmentType === "image" && (
+                          <a href={m.attachmentUrl} target="_blank" rel="noreferrer" className="mt-2 block">
+                            <img
+                              src={m.attachmentUrl}
+                              alt={m.attachmentName ?? "Shared image"}
+                              className="max-h-64 rounded-lg border border-black/20 object-cover"
+                              loading="lazy"
+                            />
+                          </a>
+                        )}
+                        {m.attachmentUrl && m.attachmentType === "file" && (
+                          <a
+                            href={m.attachmentUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={
+                              "mt-2 flex items-center gap-2.5 rounded-lg px-3 py-2 " +
+                              (mine ? "bg-white/15 hover:bg-white/25" : "bg-ink-900 hover:bg-ink-700/50")
+                            }
+                          >
+                            <FileText size={18} className="shrink-0" />
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-semibold">{m.attachmentName ?? "File"}</span>
+                              <span className={"text-xs " + (mine ? "text-white/60" : "text-mist-600")}>{fmtSize(m.attachmentSize)}</span>
+                            </span>
+                            <Download size={14} className="ml-auto shrink-0 opacity-70" />
+                          </a>
+                        )}
                         <p className={"mt-1 text-[10px] " + (mine ? "text-white/60" : "text-mist-600")}>
                           {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </p>
@@ -440,6 +566,24 @@ export default function Messages() {
                     />
                   </div>
                 )}
+                {/* معاينة المرفق قبل الإرسال */}
+                {pendingAttachment && (
+                  <div className="mb-2 flex items-center gap-2.5 rounded-lg border border-ink-700 bg-ink-900 px-3 py-2">
+                    {pendingAttachment.type === "image" ? (
+                      <img src={pendingAttachment.url} alt="" className="h-10 w-10 rounded object-cover" />
+                    ) : (
+                      <FileText size={18} className="text-mist-400" />
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">{pendingAttachment.name}</span>
+                      <span className="text-xs text-mist-600">{fmtSize(pendingAttachment.size)}</span>
+                    </span>
+                    <button onClick={() => setPendingAttachment(null)} className="text-mist-600 hover:text-red-400" aria-label="Remove attachment">
+                      <X size={15} />
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setCodeMode((c) => !c)}
@@ -453,6 +597,20 @@ export default function Messages() {
                   >
                     {"</>"}
                   </button>
+                  {uploadsEnabled && (
+                    <>
+                      <input ref={fileInputRef} type="file" onChange={handleFilePick} className="hidden" />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingFile}
+                        className="shrink-0 rounded-lg border border-ink-700 px-3 py-2 text-mist-400 transition-colors hover:text-mist-100 disabled:opacity-50"
+                        title="Attach a file"
+                        aria-label="Attach a file"
+                      >
+                        <Paperclip size={15} className={uploadingFile ? "animate-pulse" : ""} />
+                      </button>
+                    </>
+                  )}
                   <input
                     className="input-field !py-2"
                     placeholder="Type a message..."
@@ -462,7 +620,7 @@ export default function Messages() {
                   />
                   <button
                     onClick={send}
-                    disabled={codeMode ? !codeDraft.trim() : !draft.trim()}
+                    disabled={codeMode ? !codeDraft.trim() : !draft.trim() && !pendingAttachment}
                     className="btn-primary !py-2 text-sm disabled:opacity-50"
                   >
                     <Send size={15} /> Send
@@ -472,6 +630,106 @@ export default function Messages() {
             </>
           )}
         </section>
+
+        {/* ---- اللوحة اليمين: بروفايل + Shared Media & Files ---- */}
+        {activeId && (
+          <aside className="hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-ink-700 p-5 xl:flex">
+            {(() => {
+              const activeConv = conversations.find((c) => c.id === activeId);
+              const isGroup = activeConv?.isGroup ?? false;
+              return (
+                <div className="flex flex-col items-center text-center">
+                  <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-ink-700 text-2xl font-bold">
+                    {isGroup ? (
+                      <Users size={30} />
+                    ) : other?.profile?.avatarUrl ? (
+                      <img src={other.profile.avatarUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      other?.profile?.displayName?.[0]?.toUpperCase() ?? "?"
+                    )}
+                  </div>
+                  <p className="mt-3 text-lg font-bold">
+                    {isGroup ? activeConv?.title : other?.profile?.displayName}
+                  </p>
+                  <p className="text-sm text-mist-400">
+                    {isGroup ? `${activeConv?.memberCount} members` : other?.profile?.headline ?? `@${other?.username}`}
+                  </p>
+                  {!isGroup && other && (
+                    <Link to={`/u/${other.username}`} className="btn-ghost mt-3 w-full justify-center !py-2 text-sm">
+                      View Profile
+                    </Link>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Shared Media & Files */}
+            <div className="mt-6">
+              <h3 className="text-sm font-bold">Shared Media & Files</h3>
+
+              {media && media.attachments.length === 0 && media.snippets.length === 0 && (
+                <p className="mt-3 text-xs text-mist-600">Nothing shared yet.</p>
+              )}
+
+              {/* صور متشاركة — grid */}
+              {media && media.attachments.filter((a) => a.attachmentType === "image").length > 0 && (
+                <div className="mt-3 grid grid-cols-3 gap-1.5">
+                  {media.attachments
+                    .filter((a) => a.attachmentType === "image")
+                    .slice(0, 6)
+                    .map((a) => (
+                      <a key={a.id} href={a.attachmentUrl} target="_blank" rel="noreferrer">
+                        <img src={a.attachmentUrl} alt="" className="aspect-square w-full rounded-lg object-cover" loading="lazy" />
+                      </a>
+                    ))}
+                </div>
+              )}
+
+              {/* ملفات */}
+              <div className="mt-3 space-y-2">
+                {media?.attachments
+                  .filter((a) => a.attachmentType === "file")
+                  .slice(0, 8)
+                  .map((a) => (
+                    <a
+                      key={a.id}
+                      href={a.attachmentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-2.5 rounded-lg border border-ink-700/60 bg-ink-800/60 px-3 py-2 hover:border-brand-500/40"
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ink-900 text-mist-400">
+                        <FileText size={15} />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-semibold">{a.attachmentName ?? "File"}</span>
+                        <span className="text-[10px] text-mist-600">{fmtSize(a.attachmentSize)}</span>
+                      </span>
+                    </a>
+                  ))}
+                {media && media.snippets.length > 0 && (
+                  <div className="flex items-center gap-2.5 rounded-lg border border-ink-700/60 bg-ink-800/60 px-3 py-2">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ink-900 text-mist-400">
+                      <FileCode2 size={15} />
+                    </span>
+                    <span className="text-xs text-mist-400">
+                      {media.snippets.length} code {media.snippets.length === 1 ? "snippet" : "snippets"} shared
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Clear history — أحمر تحت زي الديزاين */}
+            <button
+              onClick={clearHistory}
+              disabled={clearing}
+              className="mt-auto pt-6 text-sm font-semibold text-red-400 hover:underline disabled:opacity-50"
+            >
+              {clearing ? "Clearing..." : "Clear Conversation History"}
+            </button>
+          </aside>
+        )}
       </div>
     </AppShell>
     </>

@@ -11,12 +11,23 @@ import { getAllowedOrigins } from "./lib/cors.js";
 // فإرسال رسالة = emit للروم بتاع الطرف التاني (كل أجهزته توصلها)
 // ---------------------------------------------------------------
 
-const sendMessageSchema = z.object({
-  conversationId: z.string().min(1),
-  body: z.string().min(1).max(5000),
-  codeLanguage: z.string().max(20).optional(),
-  codeContent: z.string().max(10_000).optional(),
-});
+const sendMessageSchema = z
+  .object({
+    conversationId: z.string().min(1),
+    // body ممكن يبقى فاضي لو الرسالة مرفق بس
+    body: z.string().max(5000).default(""),
+    codeLanguage: z.string().max(20).optional(),
+    codeContent: z.string().max(10_000).optional(),
+    // مرفق (اترفع على Cloudinary من الـ client) — http(s) بس زي باقي الروابط
+    attachmentUrl: z.string().url().refine((v) => /^https?:\/\//i.test(v)).optional(),
+    attachmentType: z.enum(["image", "file"]).optional(),
+    attachmentName: z.string().max(120).optional(),
+    attachmentSize: z.number().int().min(0).max(20 * 1024 * 1024).optional(),
+  })
+  // لازم الرسالة يكون فيها حاجة: نص أو كود أو مرفق
+  .refine((m) => m.body.trim().length > 0 || m.codeContent || m.attachmentUrl, {
+    message: "Empty message",
+  });
 
 // presence: عدد اتصالات كل مستخدم (ممكن يكون فاتح من موبايل ولابتوب)
 const onlineCounts = new Map<string, number>();
@@ -84,6 +95,10 @@ export function setupSocket(httpServer: HttpServer) {
             body: input.body,
             codeLanguage: input.codeLanguage ?? null,
             codeContent: input.codeContent ?? null,
+            attachmentUrl: input.attachmentUrl ?? null,
+            attachmentType: input.attachmentUrl ? input.attachmentType ?? "file" : null,
+            attachmentName: input.attachmentUrl ? input.attachmentName ?? null : null,
+            attachmentSize: input.attachmentUrl ? input.attachmentSize ?? null : null,
           },
           select: {
             id: true,
@@ -92,6 +107,10 @@ export function setupSocket(httpServer: HttpServer) {
             body: true,
             codeLanguage: true,
             codeContent: true,
+            attachmentUrl: true,
+            attachmentType: true,
+            attachmentName: true,
+            attachmentSize: true,
             createdAt: true,
             sender: {
               select: { username: true, profile: { select: { displayName: true, avatarUrl: true } } },
@@ -212,7 +231,9 @@ async function notifyOfflineRecipients(
   const safeSenderName = esc(senderName);
   const preview = message.codeContent
     ? "sent you a code snippet"
-    : `: "${esc(message.body.slice(0, 80))}"`;
+    : message.body.trim()
+      ? `: "${esc(message.body.slice(0, 80))}"`
+      : "sent you an attachment";
   const clientUrl = (process.env.CLIENT_URL || "").split(",")[0] || "";
 
   for (const r of recipients) {

@@ -37,7 +37,7 @@ interface ConversationRow {
   name: string | null;
   updatedAt: Date;
   participants: ParticipantShape[];
-  messages: { body: string; senderId: string; codeContent: string | null; createdAt: Date }[];
+  messages: { body: string; senderId: string; codeContent: string | null; attachmentUrl: string | null; attachmentType: string | null; createdAt: Date }[];
 }
 
 // ---------------------------------------------------------------
@@ -62,7 +62,7 @@ conversationsRouter.get(
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { body: true, senderId: true, codeContent: true, createdAt: true },
+          select: { body: true, senderId: true, codeContent: true, attachmentUrl: true, attachmentType: true, createdAt: true },
         },
       },
     });
@@ -81,7 +81,9 @@ conversationsRouter.get(
         other,
         lastMessage: last
           ? {
-              preview: last.codeContent ? "📎 Code snippet" : last.body,
+              preview: last.codeContent
+                ? "📎 Code snippet"
+                : last.body || (last.attachmentType === "image" ? "🖼️ Photo" : last.attachmentUrl ? "📎 File" : ""),
               mine: last.senderId === userId,
               createdAt: last.createdAt,
             }
@@ -163,6 +165,10 @@ conversationsRouter.get(
         body: true,
         codeLanguage: true,
         codeContent: true,
+        attachmentUrl: true,
+        attachmentType: true,
+        attachmentName: true,
+        attachmentSize: true,
         createdAt: true,
         sender: {
           select: { username: true, profile: { select: { displayName: true, avatarUrl: true } } },
@@ -293,5 +299,69 @@ conversationsRouter.patch(
       select: { id: true, name: true, avatarUrl: true },
     });
     res.json({ ok: true, conversation: conv });
+  })
+);
+
+// ---------------------------------------------------------------
+// GET /api/conversations/:id/media — المرفقات وسنيبتات الكود المتشاركة
+// قسم "Shared Media & Files" في اللوحة اليمين بالديزاين
+// ---------------------------------------------------------------
+conversationsRouter.get(
+  "/:id/media",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const conversationId = req.params.id!;
+    const userId = req.user!.userId;
+
+    const membership = await prisma.conversationParticipant.findUnique({
+      where: { conversationId_userId: { conversationId, userId } },
+    });
+    if (!membership) throw Errors.forbidden("You're not part of this conversation");
+
+    const [attachments, snippets] = await Promise.all([
+      prisma.message.findMany({
+        where: { conversationId, attachmentUrl: { not: null } },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        select: {
+          id: true,
+          attachmentUrl: true,
+          attachmentType: true,
+          attachmentName: true,
+          attachmentSize: true,
+          createdAt: true,
+        },
+      }),
+      prisma.message.findMany({
+        where: { conversationId, codeContent: { not: null } },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: { id: true, codeLanguage: true, createdAt: true },
+      }),
+    ]);
+
+    res.json({ ok: true, attachments, snippets });
+  })
+);
+
+// ---------------------------------------------------------------
+// DELETE /api/conversations/:id/messages — مسح تاريخ المحادثة
+// "Clear Conversation History" في الديزاين — لأي طرف في المحادثة،
+// وبيمسح الرسايل للطرفين (مفيش نسخ لكل مستخدم في الموديل الحالي)
+// ---------------------------------------------------------------
+conversationsRouter.delete(
+  "/:id/messages",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const conversationId = req.params.id!;
+    const userId = req.user!.userId;
+
+    const membership = await prisma.conversationParticipant.findUnique({
+      where: { conversationId_userId: { conversationId, userId } },
+    });
+    if (!membership) throw Errors.forbidden("You're not part of this conversation");
+
+    await prisma.message.deleteMany({ where: { conversationId } });
+    res.json({ ok: true });
   })
 );
