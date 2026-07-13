@@ -139,7 +139,10 @@ authRouter.post(
       select: publicUserSelect,
     });
 
-    const token = signToken({ userId: user.id, role: user.role, tokenVersion: user.tokenVersion });
+    const token = signToken(
+      { userId: user.id, role: user.role, tokenVersion: user.tokenVersion },
+      input.rememberMe ? "30d" : "7d"
+    );
     res.json({ ok: true, user: publicUser, token });
   })
 );

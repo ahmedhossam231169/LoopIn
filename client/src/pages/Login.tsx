@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError, API_BASE_URL } from "../lib/api";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock } from "lucide-react";
 import { useAuth, type AuthUser } from "../lib/auth";
+import { AuthLayout, GitHubIcon, GoogleIcon } from "../components/AuthLayout";
 
 export default function Login() {
   const { setSession } = useAuth();
@@ -10,6 +11,7 @@ export default function Login() {
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -21,7 +23,7 @@ export default function Login() {
     try {
       const res = await api<{ ok: true; user: AuthUser; token: string }>(
         "/api/auth/login",
-        { method: "POST", body: JSON.stringify({ identifier, password }) }
+        { method: "POST", body: JSON.stringify({ identifier, password, rememberMe }) }
       );
       setSession(res.token, res.user);
       navigate(res.user.profile.onboarded ? "/feed" : "/onboarding");
@@ -33,23 +35,18 @@ export default function Login() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-4 py-12">
-      <Link to="/" className="mb-2 text-2xl font-extrabold text-brand-400">
-        ⌁ DevConnect
-      </Link>
-      <p className="mb-8 text-sm text-mist-400">Built for the next generation of developers.</p>
-
+    <AuthLayout>
       <div className="card w-full max-w-md">
         <h1 className="text-2xl font-bold">Welcome back</h1>
         <p className="mb-6 mt-1 text-sm text-mist-400">Sign in to your account to continue.</p>
 
         {/* OAuth */}
         <div className="grid grid-cols-2 gap-3">
-          <a href={`${API_BASE_URL}/api/auth/github`} className="btn-ghost justify-center">
-             GitHub
+          <a href={`${API_BASE_URL}/api/auth/github`} className="btn-ghost justify-center !py-2.5 text-sm">
+            <GitHubIcon /> GitHub
           </a>
-          <a href={`${API_BASE_URL}/api/auth/google`} className="btn-ghost justify-center">
-            G Google
+          <a href={`${API_BASE_URL}/api/auth/google`} className="btn-ghost justify-center !py-2.5 text-sm">
+            <GoogleIcon /> Google
           </a>
         </div>
 
@@ -63,14 +60,17 @@ export default function Login() {
             <label htmlFor="identifier" className="mb-1.5 block text-sm font-medium">
               Email or Username
             </label>
-            <input
-              id="identifier"
-              className="input-field"
-              placeholder="felix@devconnect.io"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              autoComplete="username"
-            />
+            <div className="relative">
+              <Mail size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-mist-600" />
+              <input
+                id="identifier"
+                className="input-field !pl-11"
+                placeholder="felix@devconnect.io"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                autoComplete="username"
+              />
+            </div>
           </div>
 
           <div>
@@ -78,10 +78,11 @@ export default function Login() {
               Password
             </label>
             <div className="relative">
+              <Lock size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-mist-600" />
               <input
                 id="password"
                 type={showPassword ? "text" : "password"}
-                className="input-field pr-12"
+                className="input-field !pl-11 pr-12"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -103,6 +104,16 @@ export default function Login() {
             </div>
           </div>
 
+          <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="h-4 w-4 rounded border-ink-700 bg-ink-900 accent-brand-500"
+            />
+            Keep me signed in for 30 days
+          </label>
+
           {error && (
             <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
               {error}
@@ -116,11 +127,11 @@ export default function Login() {
 
         <p className="mt-6 text-center text-sm text-mist-400">
           Don't have an account?{" "}
-          <Link to="/register" className="font-semibold text-brand-400 hover:underline">
+          <Link to="/register" className="font-semibold text-mist-100 hover:underline">
             Create an account
           </Link>
         </p>
       </div>
-    </main>
+    </AuthLayout>
   );
 }

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import { MailCheck } from "lucide-react";
+import { AuthLayout } from "../components/AuthLayout";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -27,11 +28,7 @@ export default function ForgotPassword() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-4 py-12">
-      <Link to="/" className="mb-2 text-2xl font-extrabold text-brand-400">
-        ⌁ DevConnect
-      </Link>
-
+    <AuthLayout>
       <div className="card w-full max-w-md">
         {sent ? (
           <div className="text-center">
@@ -81,6 +78,6 @@ export default function ForgotPassword() {
           </>
         )}
       </div>
-    </main>
+    </AuthLayout>
   );
 }

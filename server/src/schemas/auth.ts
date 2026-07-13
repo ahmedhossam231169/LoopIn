@@ -19,6 +19,8 @@ export const loginSchema = z.object({
   // بنسمح بالدخول بالإيميل أو الـ username — زي الـ mockup بالظبط
   identifier: z.string().min(3, "Enter your email or username"),
   password: z.string().min(1, "Password is required"),
+  // "Keep me signed in for 30 days" — بيطوّل عمر التوكن من 7 لـ 30 يوم
+  rememberMe: z.boolean().optional().default(false),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

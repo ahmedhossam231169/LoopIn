@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import { CheckCircle2 } from "lucide-react";
+import { AuthLayout } from "../components/AuthLayout";
 
 export default function ResetPassword() {
   const [params] = useSearchParams();
@@ -40,7 +41,7 @@ export default function ResetPassword() {
 
   if (!token) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center px-4">
+      <AuthLayout>
         <div className="card w-full max-w-md text-center">
           <p className="font-semibold">Invalid reset link</p>
           <p className="mt-1 text-sm text-mist-400">This link is missing or broken.</p>
@@ -48,16 +49,12 @@ export default function ResetPassword() {
             Request a new one
           </Link>
         </div>
-      </main>
+      </AuthLayout>
     );
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-4 py-12">
-      <Link to="/" className="mb-2 text-2xl font-extrabold text-brand-400">
-        ⌁ DevConnect
-      </Link>
-
+    <AuthLayout>
       <div className="card w-full max-w-md">
         {done ? (
           <div className="text-center">
@@ -108,6 +105,6 @@ export default function ResetPassword() {
           </>
         )}
       </div>
-    </main>
+    </AuthLayout>
   );
 }

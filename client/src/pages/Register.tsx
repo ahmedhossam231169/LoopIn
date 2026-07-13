@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError, API_BASE_URL } from "../lib/api";
 import { Code2, Target } from "lucide-react";
 import { useAuth, type AuthUser } from "../lib/auth";
+import { AuthLayout, GitHubIcon, GoogleIcon } from "../components/AuthLayout";
 
 type Role = "DEVELOPER" | "RECRUITER";
 
@@ -55,23 +56,18 @@ export default function Register() {
     ) : null;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-4 py-12">
-      <Link to="/" className="mb-2 text-2xl font-extrabold text-brand-400">
-        ⌁ DevConnect
-      </Link>
-      <p className="mb-8 text-sm text-mist-400">Join the network. Ship your story.</p>
-
+    <AuthLayout>
       <div className="card w-full max-w-md">
         <h1 className="text-2xl font-bold">Create your account</h1>
         <p className="mb-6 mt-1 text-sm text-mist-400">Free for developers, forever.</p>
 
         {/* OAuth — أسرع طريقة للتسجيل */}
         <div className="mb-4 grid grid-cols-2 gap-3">
-          <a href={`${API_BASE_URL}/api/auth/github`} className="btn-ghost justify-center">
-             GitHub
+          <a href={`${API_BASE_URL}/api/auth/github`} className="btn-ghost justify-center !py-2.5 text-sm">
+            <GitHubIcon /> GitHub
           </a>
-          <a href={`${API_BASE_URL}/api/auth/google`} className="btn-ghost justify-center">
-            G Google
+          <a href={`${API_BASE_URL}/api/auth/google`} className="btn-ghost justify-center !py-2.5 text-sm">
+            <GoogleIcon /> Google
           </a>
         </div>
         <div className="mb-6 flex items-center gap-3 text-xs font-semibold tracking-wider text-mist-600">
@@ -143,6 +139,6 @@ export default function Register() {
           </Link>
         </p>
       </div>
-    </main>
+    </AuthLayout>
   );
 }

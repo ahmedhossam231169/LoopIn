@@ -14,8 +14,9 @@ export interface TokenPayload {
   tokenVersion: number;
 }
 
-export function signToken(payload: TokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET!, { expiresIn: "7d" });
+export function signToken(payload: TokenPayload, expiresIn: "7d" | "30d" = "7d"): string {
+  // "30d" لما المستخدم يعلّم "Keep me signed in for 30 days" وقت اللوجين
+  return jwt.sign(payload, JWT_SECRET!, { expiresIn });
 }
 
 export function verifyToken(token: string): TokenPayload {
