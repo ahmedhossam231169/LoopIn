@@ -8,6 +8,8 @@
 //   ✗ VULN      = سلوك غير آمن اتأكد (bug — راجع BUG_REPORT)
 //   ✗ FAIL      = التست نفسه ما اشتغلش زي المتوقع
 import { io as ioc, type Socket } from "socket.io-client";
+import { prisma } from "../lib/prisma.js"; // BUG-05: نزرع reset token مباشرة
+import crypto from "node:crypto";
 
 const B = "http://localhost:4000";
 const TAG = Date.now().toString(36); // لكل تشغيلة هوية فريدة
@@ -253,6 +255,44 @@ async function main() {
       memberView.status === 200 ? "PASS" : "VULN",
       `status ${memberView.status}`
     );
+  }
+
+  // ===============================================================
+  // BUG-05 (MEDIUM → FIXED) — إعادة تعيين الباسورد بتبطّل الجلسات القديمة
+  //   بنزرع reset token في الـ DB (زي ما forgot-password بيعمل بالظبط) وبننده
+  //   الـ endpoint الحقيقي، وبعدها التوكن القديم لازم يترفض REST + socket
+  // ===============================================================
+  console.log("\nBUG-05  Password reset revokes existing sessions");
+  {
+    const victim = await register("victim");
+    const me1 = await req("GET", "/api/auth/me", victim.token);
+    const victimId = me1.data?.user?.id as string;
+    check("token valid before reset", me1.status === 200 ? "PASS" : "FAIL", `status ${me1.status}`);
+
+    // نزرع reset token مباشرة (بديل اللينك اللي بيتبعت في الإيميل)
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+    await prisma.user.update({
+      where: { id: victimId },
+      data: { resetTokenHash: tokenHash, resetTokenExpiry: new Date(Date.now() + 10 * 60 * 1000) },
+    });
+
+    const reset = await req("POST", "/api/auth/reset-password", undefined, { token: rawToken, password: "brandnewpass1" });
+    check("reset-password endpoint succeeds", reset.status === 200 ? "PASS" : "FAIL", `status ${reset.status}`);
+
+    // التوكن القديم لازم يبقى مبطّل — REST
+    const me2 = await req("GET", "/api/auth/me", victim.token);
+    check("OLD token rejected on REST after reset (session revoked)", me2.status === 401 ? "PASS" : "VULN", `status ${me2.status}`);
+
+    // والـ socket كمان مايقبلش التوكن القديم
+    let socketRejected = false;
+    try { const s = await connect(victim.token); s.disconnect(); } catch { socketRejected = true; }
+    check("OLD token rejected by socket after reset", socketRejected ? "PASS" : "VULN");
+
+    // كلمة السر الجديدة بتدّي توكن جديد شغّال
+    const login = await req("POST", "/api/auth/login", undefined, { identifier: victim.username, password: "brandnewpass1" });
+    const me3 = await req("GET", "/api/auth/me", login.data?.token);
+    check("new login after reset issues a working token", me3.status === 200 ? "PASS" : "FAIL", `status ${me3.status}`);
   }
 
   // ===============================================================

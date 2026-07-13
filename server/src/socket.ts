@@ -36,11 +36,21 @@ export function setupSocket(httpServer: HttpServer) {
   ioRef = io;
 
   // auth middleware: نفس JWT بتاع الـ REST — من غير توكن صالح مفيش اتصال
-  io.use((socket, next) => {
+  // [SECURITY BUG-05] بنتأكد كمان إن tokenVersion لسه مطابق للداتابيز،
+  // فالتوكن اللي اتبطّل بعد reset الباسورد مايقدرش يفتح socket
+  io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token as string | undefined;
       if (!token) return next(new Error("UNAUTHORIZED"));
-      socket.data.user = verifyToken(token) satisfies TokenPayload;
+      const payload = verifyToken(token);
+      const user = await prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { tokenVersion: true },
+      });
+      if (!user || user.tokenVersion !== (payload.tokenVersion ?? 0)) {
+        return next(new Error("UNAUTHORIZED"));
+      }
+      socket.data.user = payload satisfies TokenPayload;
       next();
     } catch {
       next(new Error("UNAUTHORIZED"));
