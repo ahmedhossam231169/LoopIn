@@ -268,7 +268,7 @@ export default function UserProfile() {
                     {ghError
                       ? "GitHub is busy right now — projects will be back shortly."
                       : isMe
-                        ? "No GitHub projects yet — connect your GitHub username in settings."
+                        ? "No GitHub projects yet — connect your GitHub account from the Projects page."
                         : "No public GitHub projects to show."}
                   </div>
                 ) : (

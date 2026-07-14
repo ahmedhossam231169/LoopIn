@@ -1,17 +1,16 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GitHubProjects } from "../components/GitHubProjects";
 import { useAuth } from "../lib/auth";
-import { api, ApiError } from "../lib/api";
+import { api } from "../lib/api";
 import { Loader2 } from "lucide-react";
 import { GitHubIcon } from "../components/AuthLayout";
 
 // صفحة المشاريع — بتعرض مشاريع GitHub المستوردة لحساب المستخدم الحالي
-// لو GitHub مش متربط (مسجل بإيميل/Google) بنعرض فورم ربط سريع مكانها
+// [SECURITY] الربط عن طريق GitHub OAuth بس (إثبات ملكية) — مفيش كتابة username باليد
 export default function Projects() {
   const { user } = useAuth();
-  // بعد الربط الناجح بنغيّر الـ key عشان GitHubProjects يتعمله remount ويجيب الداتا
-  const [reloadKey, setReloadKey] = useState(0);
 
   return (
     <AppShell>
@@ -22,36 +21,27 @@ export default function Projects() {
         </p>
       </div>
 
-      {user && (
-        <GitHubProjects
-          key={reloadKey}
-          username={user.username}
-          fallback={<ConnectGitHubCard onLinked={() => setReloadKey((k) => k + 1)} />}
-        />
-      )}
+      {user && <GitHubProjects username={user.username} fallback={<ConnectGitHubCard />} />}
     </AppShell>
   );
 }
 
-// ---- فورم ربط GitHub — يقبل username أو إيميل أو لينك البروفايل ----
-function ConnectGitHubCard({ onLinked }: { onLinked: () => void }) {
-  const [identifier, setIdentifier] = useState("");
+// ---- كارت الربط — بيوديك على GitHub OAuth تثبت إن الحساب بتاعك ----
+function ConnectGitHubCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // GitHub بيرجّعنا هنا بـ ?github=<نتيجة> — بنعرض رسالة على أساسها
+  const [params] = useSearchParams();
+  const result = params.get("github");
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!identifier.trim() || busy) return;
+  async function connect() {
     setBusy(true);
     setError(null);
     try {
-      await api<{ ok: true; githubUsername: string }>("/api/profiles/me/github-link", {
-        method: "POST",
-        body: JSON.stringify({ identifier: identifier.trim() }),
-      });
-      onLinked();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
+      const r = await api<{ ok: true; url: string }>("/api/auth/github/connect-url");
+      window.location.href = r.url; // → صفحة موافقة GitHub
+    } catch {
+      setError("Couldn't start GitHub connect — try again in a moment.");
       setBusy(false);
     }
   }
@@ -64,29 +54,25 @@ function ConnectGitHubCard({ onLinked }: { onLinked: () => void }) {
       <div>
         <p className="font-semibold">Show your GitHub projects here</p>
         <p className="mx-auto mt-1 max-w-md text-sm text-mist-400">
-          Enter your GitHub username, profile link, or public email — your repositories
-          and stats will appear automatically.
+          Verify your GitHub account once and your repositories and stats will appear
+          automatically — on your profile too.
         </p>
       </div>
 
-      <form onSubmit={submit} className="flex w-full max-w-md flex-col gap-2 sm:flex-row">
-        <input
-          className="input-field flex-1"
-          placeholder="username, github.com/you, or email"
-          value={identifier}
-          onChange={(e) => setIdentifier(e.target.value)}
-          disabled={busy}
-        />
-        <button type="submit" disabled={busy || !identifier.trim()} className="btn-primary justify-center text-sm disabled:opacity-60">
-          {busy ? <Loader2 size={16} className="animate-spin" /> : "Connect"}
-        </button>
-      </form>
+      <button onClick={connect} disabled={busy} className="btn-primary text-sm disabled:opacity-60">
+        {busy ? <Loader2 size={16} className="animate-spin" /> : <GitHubIcon size={16} />}
+        Connect with GitHub
+      </button>
 
+      {result === "already-linked" && (
+        <p className="text-sm text-red-400">
+          That GitHub account is already linked to another DevConnect account.
+        </p>
+      )}
+      {result === "error" && (
+        <p className="text-sm text-red-400">Something went wrong while linking — try again.</p>
+      )}
       {error && <p className="text-sm text-red-400">{error}</p>}
-
-      <p className="text-xs text-mist-600">
-        Tip: signing in with GitHub links your account automatically.
-      </p>
     </div>
   );
 }

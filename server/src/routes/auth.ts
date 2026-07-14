@@ -34,9 +34,11 @@ function signOAuthState(payload: string): string {
   return crypto.createHmac("sha256", secret).update(`oauth-state|${payload}`).digest("hex");
 }
 
-function issueOAuthState(res: Response): string {
+// الـ state بيشيل كمان "mode": يا "login" يا "link:<userId>" —
+// عشان نفس الـ callback يخدم تسجيل الدخول وربط GitHub بحساب موجود
+function issueOAuthState(res: Response, mode = "login"): string {
   const nonce = crypto.randomBytes(16).toString("hex");
-  const payload = `${nonce}.${Date.now() + OAUTH_STATE_TTL_MS}`;
+  const payload = `${nonce}.${Date.now() + OAUTH_STATE_TTL_MS}.${mode}`;
   const state = `${payload}.${signOAuthState(payload)}`;
   res.cookie(OAUTH_STATE_COOKIE, state, {
     httpOnly: true,
@@ -48,7 +50,8 @@ function issueOAuthState(res: Response): string {
   return state;
 }
 
-function verifyOAuthState(req: Request, res: Response) {
+/** بيرجع الـ mode بتاع الـ state بعد التحقق ("login" أو "link:<userId>") */
+function verifyOAuthState(req: Request, res: Response): string {
   const returned = String(req.query.state ?? "");
   // قراءة الكوكي يدويًا — مش محتاجين cookie-parser لكوكي واحد
   const cookieHeader = req.headers.cookie ?? "";
@@ -63,15 +66,19 @@ function verifyOAuthState(req: Request, res: Response) {
   const mismatch = Errors.unauthorized("OAuth state mismatch. Please try signing in again.");
 
   // 1) التوقيع لازم يكون صح — ده بيمنع أي state متلفق أو متعدّل
-  const [nonce, expStr, sig] = returned.split(".");
-  if (!nonce || !expStr || !sig) throw mismatch;
-  const expected = signOAuthState(`${nonce}.${expStr}`);
+  const parts = returned.split(".");
+  if (parts.length < 4) throw mismatch;
+  const sig = parts.pop()!;
+  const payload = parts.join(".");
+  const expected = signOAuthState(payload);
   if (
     sig.length !== expected.length ||
     !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
   ) {
     throw mismatch;
   }
+  const [, expStr, ...modeParts] = parts;
+  const mode = modeParts.join(".");
 
   // 2) الصلاحية — الـ state القديم مايتقبلش (يحد من إعادة الاستخدام)
   const exp = Number(expStr);
@@ -80,13 +87,18 @@ function verifyOAuthState(req: Request, res: Response) {
   }
 
   // 3) لو الكوكي وصلت لازم تطابق — لو اتمسحت (tracking protection) نكتفي بالتوقيع
+  // في وضع link مش بنقارن: الـ state أصلًا مربوط بالـ userId بتوقيع HMAC،
+  // وكوكي قديمة من محاولة login سابقة كانت بتعمل رفض غلط
   if (
+    mode === "login" &&
     stored &&
     (returned.length !== stored.length ||
       !crypto.timingSafeEqual(Buffer.from(returned), Buffer.from(stored)))
   ) {
     throw mismatch;
   }
+
+  return mode;
 }
 
 // اللي بنرجعه للـ client عن المستخدم — من غير passwordHash أبدًا
@@ -215,6 +227,25 @@ authRouter.get("/github", (_req, res) => {
   res.redirect(`https://github.com/login/oauth/authorize?${params}`);
 });
 
+// ---------------------------------------------------------------
+// GET /api/auth/github/connect-url — ربط GitHub بحساب مسجّل دخول بالفعل
+// [SECURITY] عرض الـ repos بيتطلب إثبات ملكية حساب GitHub عن طريق OAuth —
+// مش مجرد كتابة username — عشان محدش يعرض مشاريع حد تاني على إنها بتاعته.
+// بنرجّع اللينك في JSON (مش redirect) لأن الطلب محتاج Authorization header.
+// الـ state بيشيل userId موقّع بـ HMAC فالـ callback يعرف يربط مين.
+// ---------------------------------------------------------------
+authRouter.get("/github/connect-url", requireAuth, (req, res) => {
+  const clientId = process.env.GITHUB_CLIENT_ID;
+  if (!clientId) throw Errors.internal("GitHub OAuth is not configured");
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    scope: "read:user",
+    state: issueOAuthState(res, `link:${req.user!.userId}`),
+  });
+  res.json({ ok: true, url: `https://github.com/login/oauth/authorize?${params}` });
+});
+
 interface GitHubUser {
   id: number;
   login: string;
@@ -226,7 +257,7 @@ interface GitHubUser {
 authRouter.get(
   "/github/callback",
   asyncHandler(async (req, res) => {
-    verifyOAuthState(req, res); // [SECURITY] لازم قبل أي حاجة تانية
+    const mode = verifyOAuthState(req, res); // [SECURITY] لازم قبل أي حاجة تانية
     const code = String(req.query.code ?? "");
     if (!code) throw Errors.badRequest("Missing OAuth code");
 
@@ -248,6 +279,36 @@ authRouter.get(
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const gh = (await ghRes.json()) as GitHubUser;
+
+    // ---- وضع الربط: مستخدم مسجّل دخول بالفعل بيثبت ملكية حساب GitHub ----
+    if (mode.startsWith("link:")) {
+      const userId = mode.slice("link:".length);
+      const clientUrl = getAllowedOrigins()[0];
+
+      // الحساب ده مربوط بمستخدم تاني عندنا؟ → مانسمحش بالسرقة العكسية
+      const taken = await prisma.user.findUnique({
+        where: { githubId: String(gh.id) },
+        select: { id: true },
+      });
+      if (taken && taken.id !== userId) {
+        return res.redirect(`${clientUrl}/projects?github=already-linked`);
+      }
+
+      const me = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+      if (!me) return res.redirect(`${clientUrl}/projects?github=error`);
+
+      await prisma.$transaction([
+        prisma.user.update({ where: { id: userId }, data: { githubId: String(gh.id) } }),
+        prisma.profile.update({
+          where: { userId },
+          data: {
+            githubUsername: gh.login,
+            githubUrl: `https://github.com/${gh.login}`,
+          },
+        }),
+      ]);
+      return res.redirect(`${clientUrl}/projects?github=connected`);
+    }
 
     // 3) لو مسجّل قبل كده → login. لو جديد → أنشئ حساب
     let user = await prisma.user.findUnique({ where: { githubId: String(gh.id) } });

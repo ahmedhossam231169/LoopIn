@@ -288,18 +288,16 @@ profilesRouter.get(
   asyncHandler(async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { username: req.params.username! },
-      select: { id: true, profile: { select: { githubUsername: true, githubUrl: true } } },
+      select: { id: true, githubId: true, profile: { select: { githubUsername: true } } },
     });
     if (!user?.profile) throw Errors.notFound("Profile");
     // [SECURITY BUG-04] المحظور مايشوفش مشاريع GitHub بتاعت اللي حظره
     if (await isBlockedBetween(req.user!.userId, user.id)) throw Errors.notFound("Profile");
 
-    // نستنتج username الـ GitHub: من الحقل المخصص، أو من الـ githubUrl
-    let ghUsername = user.profile.githubUsername;
-    if (!ghUsername && user.profile.githubUrl) {
-      const match = user.profile.githubUrl.match(/github\.com\/([^/]+)/);
-      ghUsername = match?.[1] ?? null;
-    }
+    // [SECURITY] الـ repos بتتعرض فقط لحساب GitHub متوثق بـ OAuth (githubId موجود)
+    // — الـ githubUrl المكتوب باليد في البروفايل مجرد لينك ومابيثبتش ملكية،
+    // ومن غير الشرط ده أي حد يقدر يعرض مشاريع أي حد تاني على إنها بتاعته
+    const ghUsername = user.githubId ? user.profile.githubUsername : null;
     if (!ghUsername) {
       return res.json({ ok: true, projects: [], stats: null, githubConnected: false });
     }
@@ -362,70 +360,9 @@ profilesRouter.get(
   })
 );
 
-// ---------------------------------------------------------------
-// POST /api/profiles/me/github-link — ربط حساب GitHub بالبروفايل
-// بيقبل username أو لينك بروفايل أو إيميل (لو الإيميل معلن على GitHub)
-// للمستخدمين اللي سجلوا بإيميل/Google وعايزين يعرضوا مشاريعهم
-// ---------------------------------------------------------------
-import { z } from "zod";
-
-const githubLinkSchema = z.object({
-  identifier: z.string().trim().min(1, "Enter your GitHub username or email").max(200),
-});
-
-profilesRouter.post(
-  "/me/github-link",
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const { identifier } = githubLinkSchema.parse(req.body);
-
-    // 1) نستخرج الـ username من اللي المستخدم كتبه: لينك أو إيميل أو username
-    let login: string | null = null;
-    const urlMatch = identifier.match(/github\.com\/([A-Za-z0-9-]+)/i);
-    if (urlMatch) {
-      login = urlMatch[1]!;
-    } else if (identifier.includes("@")) {
-      // إيميل → GitHub search API (بيلاقي الحساب فقط لو الإيميل معلن في البروفايل)
-      const sResult = await ghJson(
-        `https://api.github.com/search/users?q=${encodeURIComponent(identifier)}+in:email&per_page=1`
-      );
-      if (sResult.ok) {
-        const s = sResult.data as { items?: { login: string }[] };
-        login = s.items?.[0]?.login ?? null;
-      }
-      if (!login) {
-        throw Errors.badRequest(
-          "No GitHub account found with this email — it only works if the email is public on GitHub. Try your GitHub username instead."
-        );
-      }
-    } else {
-      login = identifier;
-    }
-
-    if (!/^[A-Za-z0-9-]{1,39}$/.test(login)) {
-      throw Errors.badRequest("That doesn't look like a valid GitHub username");
-    }
-
-    // 2) نتأكد إن الحساب موجود فعلًا (وناخد الـ casing الرسمي بتاعه)
-    const uResult = await ghJson(`https://api.github.com/users/${login}`);
-    if (!uResult.ok) {
-      if (uResult.status === 404) throw Errors.notFound("GitHub account");
-      throw Errors.internal("GitHub is unavailable right now — try again in a minute");
-    }
-    const ghAccount = uResult.data as { login: string };
-
-    // 3) نخزنه على البروفايل — من هنا ورايح المشاريع والـ stats بيظهروا تلقائيًا
-    await prisma.profile.update({
-      where: { userId: req.user!.userId },
-      data: {
-        githubUsername: ghAccount.login,
-        githubUrl: `https://github.com/${ghAccount.login}`,
-      },
-    });
-
-    res.json({ ok: true, githubUsername: ghAccount.login });
-  })
-);
+// [SECURITY] ربط GitHub بالكتابة (username/إيميل) اتشال نهائيًا —
+// كان بيسمح لأي حد يعرض مشاريع أي حد تاني على إنها بتاعته.
+// الربط دلوقتي عن طريق GitHub OAuth بس: GET /api/auth/github/connect-url
 
 // ---------------------------------------------------------------
 // POST /api/profiles/me/complete-onboarding — يعلّم إن المستخدم خلّص الترحيب
