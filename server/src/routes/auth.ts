@@ -13,22 +13,36 @@ export const authRouter = Router();
 
 // ---------------------------------------------------------------
 // [SECURITY] OAuth state — حماية من CSRF على الـ callback
-// بنولّد قيمة عشوائية، بنحطها في كوكي httpOnly وفي بارامتر state،
-// وفي الـ callback لازم الاتنين يتطابقوا. من غيرها مهاجم يقدر يخلي
-// المتصفح بتاعك يكمّل تدفق OAuth بدأه هو (login CSRF / ربط حساب غلط)
+// الـ state بقى self-validating: nonce.expiry.HMAC — السيرفر بيتحقق من
+// التوقيع والصلاحية بدل الاعتماد الكامل على الكوكي. السبب: حماية الخصوصية
+// في المتصفحات الحديثة (Chrome bounce tracking mitigation / Firefox ETP
+// Strict) بتمسح كوكيز دومين الـ API لأنه بيستقبل navigation وبيعمل
+// redirect فورًا من غير تفاعل — فالكوكي كانت بتضيع والدخول بيفشل
+// بـ "state mismatch". الكوكي لسه بتتبعت، ولو وصلت لازم تطابق (حماية
+// أقوى ضد login CSRF) — بس غيابها ما بيفشلش الـ flow.
 // ---------------------------------------------------------------
 import crypto from "node:crypto";
 import type { Request, Response } from "express";
 
 const OAUTH_STATE_COOKIE = "dc_oauth_state";
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 دقايق كافية لإتمام التدفق
+
+function signOAuthState(payload: string): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw Errors.internal("JWT_SECRET is not configured");
+  // "oauth-state|" prefix عشان التوقيع ده مايتلبسش على أي استخدام تاني للسر
+  return crypto.createHmac("sha256", secret).update(`oauth-state|${payload}`).digest("hex");
+}
 
 function issueOAuthState(res: Response): string {
-  const state = crypto.randomBytes(24).toString("hex");
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const payload = `${nonce}.${Date.now() + OAUTH_STATE_TTL_MS}`;
+  const state = `${payload}.${signOAuthState(payload)}`;
   res.cookie(OAUTH_STATE_COOKIE, state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax", // lax عشان الكوكي يتبعت مع الـ redirect الراجع من GitHub/Google
-    maxAge: 10 * 60 * 1000, // 10 دقايق كافية لإتمام التدفق
+    maxAge: OAUTH_STATE_TTL_MS,
     path: "/api/auth",
   });
   return state;
@@ -46,13 +60,32 @@ function verifyOAuthState(req: Request, res: Response) {
 
   res.clearCookie(OAUTH_STATE_COOKIE, { path: "/api/auth" }); // يتستخدم مرة واحدة
 
+  const mismatch = Errors.unauthorized("OAuth state mismatch. Please try signing in again.");
+
+  // 1) التوقيع لازم يكون صح — ده بيمنع أي state متلفق أو متعدّل
+  const [nonce, expStr, sig] = returned.split(".");
+  if (!nonce || !expStr || !sig) throw mismatch;
+  const expected = signOAuthState(`${nonce}.${expStr}`);
   if (
-    !returned ||
-    !stored ||
-    returned.length !== stored.length ||
-    !crypto.timingSafeEqual(Buffer.from(returned), Buffer.from(stored))
+    sig.length !== expected.length ||
+    !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
   ) {
-    throw Errors.unauthorized("OAuth state mismatch. Please try signing in again.");
+    throw mismatch;
+  }
+
+  // 2) الصلاحية — الـ state القديم مايتقبلش (يحد من إعادة الاستخدام)
+  const exp = Number(expStr);
+  if (!Number.isFinite(exp) || exp < Date.now()) {
+    throw Errors.unauthorized("This sign-in attempt expired. Please try again.");
+  }
+
+  // 3) لو الكوكي وصلت لازم تطابق — لو اتمسحت (tracking protection) نكتفي بالتوقيع
+  if (
+    stored &&
+    (returned.length !== stored.length ||
+      !crypto.timingSafeEqual(Buffer.from(returned), Buffer.from(stored)))
+  ) {
+    throw mismatch;
   }
 }
 
