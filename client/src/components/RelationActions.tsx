@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { UserPlus, UserCheck, Clock, MoreHorizontal, Flag, Ban } from "lucide-react";
+import { UserPlus, UserCheck, Clock, MoreHorizontal, Flag, Ban, CheckCircle2 } from "lucide-react";
 import { api } from "../lib/api";
 import type { FriendState, RelationStatus } from "../lib/types";
 
@@ -12,6 +12,7 @@ export function RelationActions({ username }: { username: string }) {
   const [reporting, setReporting] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState("");
+  const [reportSubmitted, setReportSubmitted] = useState(false);
 
   useEffect(() => {
     api<{ ok: true } & RelationStatus>(`/api/friends/status/${username}`)
@@ -76,9 +77,12 @@ export function RelationActions({ username }: { username: string }) {
     setReporting(true);
     try {
       await api("/api/moderation/report", { method: "POST", body: JSON.stringify({ username, reason }) });
-      alert("Report submitted. Our team will review it.");
-      setReportOpen(false);
-      setReportReason("");
+      setReportSubmitted(true);
+      setTimeout(() => {
+        setReportOpen(false);
+        setReportSubmitted(false);
+        setReportReason("");
+      }, 1800);
     } finally {
       setReporting(false);
     }
@@ -152,25 +156,35 @@ export function RelationActions({ username }: { username: string }) {
       {reportOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setReportOpen(false)}>
           <div className="card w-full max-w-sm !p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-1 text-base font-bold">Report @{username}</h3>
-            <p className="mb-3 text-sm text-mist-400">Tell us what's wrong. This field is required.</p>
-            <textarea
-              className="input-field min-h-24 resize-y text-sm"
-              placeholder="Describe the issue..."
-              value={reportReason}
-              onChange={(e) => setReportReason(e.target.value)}
-              autoFocus
-            />
-            <div className="mt-3 flex justify-end gap-2">
-              <button onClick={() => setReportOpen(false)} className="btn-ghost !py-1.5 text-sm">Cancel</button>
-              <button
-                onClick={submitReport}
-                disabled={reporting || !reportReason.trim()}
-                className="btn-primary !py-1.5 text-sm disabled:opacity-50"
-              >
-                {reporting ? "Submitting..." : "Submit report"}
-              </button>
-            </div>
+            {reportSubmitted ? (
+              <div className="flex flex-col items-center py-4 text-center">
+                <CheckCircle2 size={36} className="mb-2 text-emerald-400" />
+                <p className="font-semibold">Report submitted</p>
+                <p className="mt-1 text-sm text-mist-400">Our team will review it shortly.</p>
+              </div>
+            ) : (
+              <>
+                <h3 className="mb-1 text-base font-bold">Report @{username}</h3>
+                <p className="mb-3 text-sm text-mist-400">Tell us what's wrong. This field is required.</p>
+                <textarea
+                  className="input-field min-h-24 resize-y text-sm"
+                  placeholder="Describe the issue..."
+                  value={reportReason}
+                  onChange={(e) => setReportReason(e.target.value)}
+                  autoFocus
+                />
+                <div className="mt-3 flex justify-end gap-2">
+                  <button onClick={() => setReportOpen(false)} className="btn-ghost !py-1.5 text-sm">Cancel</button>
+                  <button
+                    onClick={submitReport}
+                    disabled={reporting || !reportReason.trim()}
+                    className="btn-primary !py-1.5 text-sm disabled:opacity-50"
+                  >
+                    {reporting ? "Submitting..." : "Submit report"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
