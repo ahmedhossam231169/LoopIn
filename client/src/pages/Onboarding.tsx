@@ -17,7 +17,6 @@ export default function Onboarding() {
   const [step, setStep] = useState(1);
 
   const [specialty, setSpecialty] = useState<Specialty | "">("");
-  const [yearsExperience, setYearsExperience] = useState(0);
   const [availability, setAvailability] = useState<Availability>("OPEN_TO_WORK");
   const [skillInput, setSkillInput] = useState("");
   const [skills, setSkills] = useState<string[]>([]);
@@ -41,7 +40,6 @@ export default function Onboarding() {
         method: "PUT",
         body: JSON.stringify({
           specialty: specialty || undefined,
-          yearsExperience,
           availability,
           headline: headline || undefined,
           skills: skills.map((name) => ({ name, years: 1 })),
@@ -87,10 +85,7 @@ export default function Onboarding() {
               {SPECIALTIES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
 
-            <label className="mb-1.5 block text-sm font-medium">Years of experience: {yearsExperience}</label>
-            <input type="range" min={0} max={20} value={yearsExperience} onChange={(e) => setYearsExperience(Number(e.target.value))} className="mb-6 w-full accent-brand-500" />
-
-            <button onClick={() => setStep(2)} disabled={!specialty} className="btn-primary w-full justify-center disabled:opacity-50">
+            <button onClick={() => setStep(2)} disabled={!specialty} className="mt-4 btn-primary w-full justify-center disabled:opacity-50">
               Continue
             </button>
           </>
