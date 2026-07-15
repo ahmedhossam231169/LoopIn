@@ -32,7 +32,6 @@ export interface Profile {
   location: string | null;
   yearsExperience: number | null;
   specialty: Specialty | null;
-  companyName: string | null; // شركة الـ recruiter (recruiters بس)
   availability: Availability;
   websiteUrl: string | null;
   githubUrl: string | null;

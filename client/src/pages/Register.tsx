@@ -18,7 +18,6 @@ export default function Register() {
     email: "",
     password: "",
     yearsExperience: "",
-    companyName: "",
   });
   const [role, setRole] = useState<Role>("DEVELOPER");
   const [resumeUrl, setResumeUrl] = useState<string | null>(null);
@@ -30,8 +29,7 @@ export default function Register() {
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const needsResume = role === "DEVELOPER";
-  const needsCompany = role === "RECRUITER";
-  const canSubmit = (!needsResume || !!resumeUrl) && (!needsCompany || !!form.companyName.trim());
+  const canSubmit = !needsResume || !!resumeUrl;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -48,7 +46,6 @@ export default function Register() {
             role,
             yearsExperience: Number(form.yearsExperience),
             resumeUrl: resumeUrl ?? undefined,
-            companyName: form.companyName.trim() || undefined,
           }),
         }
       );
@@ -156,15 +153,6 @@ export default function Register() {
                 accept="application/pdf"
               />
               <FieldError name="resumeUrl" />
-            </div>
-          )}
-
-          {needsCompany && (
-            <div>
-              <label htmlFor="companyName" className="mb-1.5 block text-sm font-medium">Company name</label>
-              <input id="companyName" className="input-field" placeholder="e.g. Acme Inc."
-                value={form.companyName} onChange={set("companyName")} />
-              <FieldError name="companyName" />
             </div>
           )}
 

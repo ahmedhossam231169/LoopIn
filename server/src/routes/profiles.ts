@@ -19,7 +19,6 @@ const fullProfileSelect = {
   location: true,
   yearsExperience: true,
   specialty: true,
-  companyName: true,
   availability: true,
   websiteUrl: true,
   githubUrl: true,
