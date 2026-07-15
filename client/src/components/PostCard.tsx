@@ -574,12 +574,6 @@ export function PostCard({
           {shareMenuOpen && (
             <div className="absolute bottom-full left-0 z-10 mb-1 w-48 rounded-lg border border-ink-700 bg-ink-800 py-1 text-sm shadow-xl">
               <button
-                onClick={() => { setShareMenuOpen(false); toggleRepost(); }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-ink-900"
-              >
-                <Repeat2 size={14} /> Share to your profile
-              </button>
-              <button
                 onClick={() => { setShareMenuOpen(false); setFriendPickerOpen(true); }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-ink-900"
               >
