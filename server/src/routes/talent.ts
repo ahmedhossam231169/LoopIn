@@ -47,7 +47,8 @@ talentRouter.get(
     // يعني لو الـ recruiter دور بـ React + TypeScript، المرشح لازم يملك الاتنين مع بعض
     // [SECURITY BUG-01] شرط ثابت: بس البروفايلات اللي وافقت تظهر للـ recruiters.
     // من غيره أي recruiter (والتسجيل مفتوح) كان يعدّد بيانات كل المطورين بدون موافقتهم.
-    const andConditions: any[] = [{ discoverable: true }];
+    // بس حسابات الـ Developer — مش الـ Recruiters
+    const andConditions: any[] = [{ discoverable: true }, { user: { role: "DEVELOPER" } }];
 
     if (q.specialty) andConditions.push({ specialty: q.specialty });
     if (q.availability) andConditions.push({ availability: q.availability });
