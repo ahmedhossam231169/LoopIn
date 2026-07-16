@@ -6,6 +6,7 @@ import { STAGES, STAGE_META, MatchScoreBar, PostRoleModal, type Stage } from "./
 import {
   Plus, MapPin, Clock, ChevronDown, ChevronUp, Trash2, UserPlus, Lock, Unlock,
 } from "lucide-react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 // ---------------------------------------------------------------
 // Jobs — إدارة الوظايف المفتوحة + الـ pipeline بتاع كل وظيفة
@@ -39,6 +40,7 @@ export default function Jobs() {
   const [apps, setApps] = useState<Record<string, JobApplication[]>>({});
   const [addDraft, setAddDraft] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<JobItem | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,9 +94,9 @@ export default function Jobs() {
   }
 
   async function deleteJob(job: JobItem) {
-    if (!window.confirm(`Delete "${job.title}" and its pipeline? This can't be undone.`)) return;
     setJobs((p) => p.filter((j) => j.id !== job.id));
     await api(`/api/jobs/${job.id}`, { method: "DELETE" }).catch(() => load());
+    setDeleteTarget(null);
   }
 
   return (
@@ -162,7 +164,7 @@ export default function Jobs() {
                   <button onClick={() => toggleStatus(job)} className="rounded-lg p-2 text-mist-400 hover:bg-ink-900 hover:text-mist-100" title={job.status === "OPEN" ? "Close role" : "Reopen role"}>
                     {job.status === "OPEN" ? <Lock size={15} /> : <Unlock size={15} />}
                   </button>
-                  <button onClick={() => deleteJob(job)} className="rounded-lg p-2 text-mist-400 hover:bg-ink-900 hover:text-red-400" title="Delete role">
+                  <button onClick={() => setDeleteTarget(job)} className="rounded-lg p-2 text-mist-400 hover:bg-ink-900 hover:text-red-400" title="Delete role">
                     <Trash2 size={15} />
                   </button>
                   <button onClick={() => toggleExpand(job)} className="btn-ghost !px-3 !py-2 text-sm">
@@ -244,6 +246,15 @@ export default function Jobs() {
       </div>
 
       {showPost && <PostRoleModal onClose={() => setShowPost(false)} onCreated={load} />}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title={`Delete "${deleteTarget?.title}" and its pipeline?`}
+        description="This can't be undone."
+        confirmLabel="Delete"
+        onConfirm={() => deleteTarget && deleteJob(deleteTarget)}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </AppShell>
   );
 }

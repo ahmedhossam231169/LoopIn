@@ -13,6 +13,9 @@ export function RelationActions({ username }: { username: string }) {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const [reportSubmitted, setReportSubmitted] = useState(false);
+  const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
     api<{ ok: true } & RelationStatus>(`/api/friends/status/${username}`)
@@ -63,12 +66,19 @@ export function RelationActions({ username }: { username: string }) {
   }
 
   async function blockUser() {
-    if (!confirm(`Block @${username}? This removes any friendship and follow between you.`)) return;
-    await api(`/api/moderation/block/${username}`, { method: "POST" });
-    setState("none");
-    setFollowing(false);
-    setMenuOpen(false);
-    alert(`@${username} has been blocked.`);
+    setBlocking(true);
+    try {
+      await api(`/api/moderation/block/${username}`, { method: "POST" });
+      setState("none");
+      setFollowing(false);
+      setBlocked(true);
+      setTimeout(() => {
+        setBlockConfirmOpen(false);
+        setBlocked(false);
+      }, 1500);
+    } finally {
+      setBlocking(false);
+    }
   }
 
   async function submitReport() {
@@ -145,7 +155,7 @@ export function RelationActions({ username }: { username: string }) {
             <button onClick={() => { setMenuOpen(false); setReportOpen(true); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-ink-900">
               <Flag size={14} /> Report
             </button>
-            <button onClick={blockUser} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-ink-900">
+            <button onClick={() => { setMenuOpen(false); setBlockConfirmOpen(true); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-ink-900">
               <Ban size={14} /> Block
             </button>
           </div>
@@ -181,6 +191,39 @@ export function RelationActions({ username }: { username: string }) {
                     className="btn-primary !py-1.5 text-sm disabled:opacity-50"
                   >
                     {reporting ? "Submitting..." : "Submit report"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* مودال الحظر — نفس ديزاين مودال الريبورت */}
+      {blockConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !blocking && setBlockConfirmOpen(false)}>
+          <div className="card w-full max-w-sm !p-5" onClick={(e) => e.stopPropagation()}>
+            {blocked ? (
+              <div className="flex flex-col items-center py-4 text-center">
+                <CheckCircle2 size={36} className="mb-2 text-emerald-400" />
+                <p className="font-semibold">@{username} has been blocked</p>
+              </div>
+            ) : (
+              <>
+                <h3 className="mb-1 text-base font-bold">Block @{username}?</h3>
+                <p className="mb-3 text-sm text-mist-400">
+                  This removes any friendship and follow between you.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setBlockConfirmOpen(false)} disabled={blocking} className="btn-ghost !py-1.5 text-sm disabled:opacity-50">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={blockUser}
+                    disabled={blocking}
+                    className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+                  >
+                    {blocking ? "Blocking..." : "Block"}
                   </button>
                 </div>
               </>

@@ -7,6 +7,7 @@ import { ArrowLeft, Settings, Users as UsersIcon, X, UserMinus, UserPlus, Shield
 import { Composer } from "../components/Composer";
 import { PostCard } from "../components/PostCard";
 import { FriendPicker } from "../components/FriendPicker";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 export default function CommunityDetail() {
   const { slug } = useParams<{ slug: string }>();
@@ -23,6 +24,11 @@ export default function CommunityDetail() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [requests, setRequests] = useState<JoinRequest[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const isAdmin = community?.myRole === "ADMIN";
 
@@ -35,7 +41,7 @@ export default function CommunityDetail() {
       });
       setMembers((prev) => prev.map((m) => (m.username === username ? { ...m, role } : m)));
     } catch (e: any) {
-      alert(e?.message ?? "Couldn't change the role");
+      setError(e?.message ?? "Couldn't change the role");
     }
   }
 
@@ -49,18 +55,20 @@ export default function CommunityDetail() {
       setRequests((prev) => prev.filter((r) => r.username !== username));
       if (accept) setCommunity((c) => (c ? { ...c, memberCount: c.memberCount + 1 } : c));
     } catch (e: any) {
-      alert(e?.message ?? "Couldn't respond to the request");
+      setError(e?.message ?? "Couldn't respond to the request");
     }
   }
 
   async function deleteCommunity() {
     if (!community) return;
-    if (!confirm(`Delete "${community.name}" permanently? All its posts will be deleted too. This can't be undone.`)) return;
+    setDeleting(true);
     try {
       await api(`/api/communities/${community.slug}`, { method: "DELETE" });
       window.location.href = "/communities";
     } catch (e: any) {
-      alert(e?.message ?? "Couldn't delete the community");
+      setError(e?.message ?? "Couldn't delete the community");
+      setDeleting(false);
+      setDeleteConfirmOpen(false);
     }
   }
 
@@ -80,10 +88,18 @@ export default function CommunityDetail() {
   }
 
   async function removeMember(username: string) {
-    if (!community || !confirm(`Remove @${username} from the community?`)) return;
-    await api(`/api/communities/${community.slug}/members/${username}`, { method: "DELETE" }).catch(() => {});
-    setMembers((prev) => prev.filter((m) => m.username !== username));
-    setCommunity((c) => (c ? { ...c, memberCount: Math.max(0, c.memberCount - 1) } : c));
+    if (!community) return;
+    setRemoving(true);
+    try {
+      await api(`/api/communities/${community.slug}/members/${username}`, { method: "DELETE" });
+      setMembers((prev) => prev.filter((m) => m.username !== username));
+      setCommunity((c) => (c ? { ...c, memberCount: Math.max(0, c.memberCount - 1) } : c));
+    } catch (e: any) {
+      setError(e?.message ?? "Couldn't remove this member");
+    } finally {
+      setRemoving(false);
+      setRemoveTarget(null);
+    }
   }
 
   async function saveSettings() {
@@ -363,7 +379,7 @@ export default function CommunityDetail() {
                             <Shield size={13} /> Make admin
                           </button>
                           <button
-                            onClick={(e) => { e.preventDefault(); removeMember(m.username); }}
+                            onClick={(e) => { e.preventDefault(); setRemoveTarget(m.username); }}
                             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-mist-400 hover:bg-ink-800 hover:text-red-400"
                             title="Remove member"
                           >
@@ -380,7 +396,7 @@ export default function CommunityDetail() {
             <div className="mt-5 border-t border-red-500/20 pt-4">
               <h3 className="mb-2 text-sm font-semibold text-red-400">Danger zone</h3>
               <button
-                onClick={deleteCommunity}
+                onClick={() => setDeleteConfirmOpen(true)}
                 className="flex items-center gap-1.5 rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10"
               >
                 <Trash2 size={14} /> Delete community permanently
@@ -445,6 +461,31 @@ export default function CommunityDetail() {
             )}
           </div>
         )}
+
+        {error && (
+          <p role="alert" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+            {error}
+          </p>
+        )}
+
+        <ConfirmDialog
+          open={deleteConfirmOpen}
+          title={`Delete "${community?.name}" permanently?`}
+          description="All its posts will be deleted too. This can't be undone."
+          confirmLabel="Delete"
+          busy={deleting}
+          onConfirm={deleteCommunity}
+          onCancel={() => setDeleteConfirmOpen(false)}
+        />
+
+        <ConfirmDialog
+          open={!!removeTarget}
+          title={`Remove @${removeTarget} from the community?`}
+          confirmLabel="Remove"
+          busy={removing}
+          onConfirm={() => removeTarget && removeMember(removeTarget)}
+          onCancel={() => setRemoveTarget(null)}
+        />
       </AppShell>
     </>
   );

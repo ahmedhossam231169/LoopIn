@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { CodeBlock } from "../components/CodeBlock";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 interface OtherUser {
   id: string;
@@ -188,9 +189,10 @@ export default function Messages() {
     if (res) setMedia({ attachments: res.attachments, snippets: res.snippets });
   }
 
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+
   async function clearHistory() {
     if (!activeId) return;
-    if (!window.confirm("Clear all messages in this conversation for everyone? This can't be undone.")) return;
     setClearing(true);
     try {
       await api(`/api/conversations/${activeId}/messages`, { method: "DELETE" });
@@ -199,6 +201,7 @@ export default function Messages() {
       loadConversations();
     } finally {
       setClearing(false);
+      setClearConfirmOpen(false);
     }
   }
 
@@ -722,7 +725,7 @@ export default function Messages() {
 
             {/* Clear history — أحمر تحت زي الديزاين */}
             <button
-              onClick={clearHistory}
+              onClick={() => setClearConfirmOpen(true)}
               disabled={clearing}
               className="mt-auto pt-6 text-sm font-semibold text-red-400 hover:underline disabled:opacity-50"
             >
@@ -731,6 +734,16 @@ export default function Messages() {
           </aside>
         )}
       </div>
+
+      <ConfirmDialog
+        open={clearConfirmOpen}
+        title="Clear all messages in this conversation?"
+        description="This is for everyone in the conversation. This can't be undone."
+        confirmLabel="Clear"
+        busy={clearing}
+        onConfirm={clearHistory}
+        onCancel={() => setClearConfirmOpen(false)}
+      />
     </AppShell>
     </>
   );

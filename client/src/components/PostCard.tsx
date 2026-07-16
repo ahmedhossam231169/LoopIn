@@ -7,6 +7,7 @@ import { CodeBlock } from "./CodeBlock";
 import { Markdown } from "./Markdown";
 import { FriendPicker } from "./FriendPicker";
 import { Heart, MessageCircle, MoreHorizontal, Pencil, Trash2, ThumbsUp, HandHeart, PartyPopper, Angry, Repeat2, Share2, LinkIcon, Send, Pin, UserPlus, UserCheck, Clock } from "lucide-react";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 // زرارين Follow / Add friend مصغّرين لصاحب البوست في هيدر الكارت.
 // بنجيب حالة العلاقة أول ما الكارت يظهر، وبنخفي الأزرار لحد ما توصل عشان مايبانش وميض.
@@ -119,6 +120,7 @@ function CommentItem({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(comment.body);
   const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   async function save() {
     if (!draft.trim() || draft === comment.body) { setEditing(false); return; }
@@ -136,13 +138,14 @@ function CommentItem({
   }
 
   async function remove() {
-    if (!confirm("Delete this comment?")) return;
     setBusy(true);
     try {
       await api(`/api/posts/${postId}/comments/${comment.id}`, { method: "DELETE" });
       onDeleted(comment.id);
     } catch {
       setBusy(false);
+    } finally {
+      setConfirmOpen(false);
     }
   }
 
@@ -170,7 +173,7 @@ function CommentItem({
               <button onClick={() => { setDraft(comment.body); setEditing(true); }} className="rounded p-1 text-mist-400 hover:bg-ink-800 hover:text-mist-100" aria-label="Edit comment" title="Edit">
                 <Pencil size={13} />
               </button>
-              <button onClick={remove} disabled={busy} className="rounded p-1 text-mist-400 hover:bg-ink-800 hover:text-red-400 disabled:opacity-50" aria-label="Delete comment" title="Delete">
+              <button onClick={() => setConfirmOpen(true)} disabled={busy} className="rounded p-1 text-mist-400 hover:bg-ink-800 hover:text-red-400 disabled:opacity-50" aria-label="Delete comment" title="Delete">
                 <Trash2 size={13} />
               </button>
             </span>
@@ -195,6 +198,14 @@ function CommentItem({
           <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-mist-100">{comment.body}</p>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Delete this comment?"
+        confirmLabel="Delete"
+        busy={busy}
+        onConfirm={remove}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }
@@ -318,6 +329,9 @@ export function PostCard({
   const [saving, setSaving] = useState(false);
   const [deleted, setDeleted] = useState(false);
   const [currentPost, setCurrentPost] = useState(post);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   async function saveEdit() {
     setSaving(true);
@@ -338,13 +352,15 @@ export function PostCard({
   }
 
   async function deletePost() {
-    if (!confirm("Delete this post permanently?")) return;
+    setDeleting(true);
     try {
       await api(`/api/posts/${post.id}`, { method: "DELETE" });
       setDeleted(true);
       onDeleted?.(post.id);
     } catch {
-      alert("Couldn't delete the post.");
+      setActionError("Couldn't delete the post.");
+      setDeleting(false);
+      setDeleteConfirmOpen(false);
     }
   }
 
@@ -357,7 +373,7 @@ export function PostCard({
       setPinned(res.pinned);
       onPinToggled?.(post.id, res.pinned);
     } catch {
-      alert("Couldn't pin the post.");
+      setActionError("Couldn't pin the post.");
     }
   }
 
@@ -460,7 +476,7 @@ export function PostCard({
                       <Pin size={14} /> {pinned ? "Unpin" : "Pin to top"}
                     </button>
                   )}
-                  <button onClick={() => { deletePost(); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-ink-900"><Trash2 size={14} /> Delete</button>
+                  <button onClick={() => { setDeleteConfirmOpen(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-400 hover:bg-ink-900"><Trash2 size={14} /> Delete</button>
                 </div>
               )}
             </div>
@@ -712,6 +728,21 @@ export function PostCard({
           </div>
         </div>
       )}
+
+      {actionError && (
+        <p role="alert" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+          {actionError}
+        </p>
+      )}
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="Delete this post permanently?"
+        confirmLabel="Delete"
+        busy={deleting}
+        onConfirm={deletePost}
+        onCancel={() => setDeleteConfirmOpen(false)}
+      />
     </article>
   );
 }

@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import type { ShortlistCandidate } from "../lib/types";
 import { AppShell } from "../components/AppShell";
 import { X, StickyNote } from "lucide-react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 const AVAIL_BADGE: Record<string, { label: string; cls: string }> = {
   OPEN_TO_WORK: { label: "Open to work", cls: "bg-green-500/15 text-green-400" },
@@ -16,6 +17,7 @@ export default function Shortlist() {
   const [loading, setLoading] = useState(true);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -38,9 +40,9 @@ export default function Shortlist() {
   }
 
   async function remove(username: string) {
-    if (!confirm("Remove this candidate from your shortlist?")) return;
     await api(`/api/shortlist/${username}`, { method: "DELETE" });
     setCandidates((prev) => prev.filter((c) => c.username !== username));
+    setRemoveTarget(null);
   }
 
   return (
@@ -83,7 +85,7 @@ export default function Shortlist() {
                       {badge && <span className={"rounded-full px-2 py-0.5 font-semibold " + badge.cls}>{badge.label}</span>}
                     </div>
                   </div>
-                  <button onClick={() => remove(c.username)} className="shrink-0 text-sm text-mist-600 hover:text-red-400" aria-label="Remove"><X size={16} /></button>
+                  <button onClick={() => setRemoveTarget(c.username)} className="shrink-0 text-sm text-mist-600 hover:text-red-400" aria-label="Remove"><X size={16} /></button>
                 </div>
 
                 {/* الملاحظات */}
@@ -119,6 +121,14 @@ export default function Shortlist() {
             );
           })}
         </div>
+
+        <ConfirmDialog
+          open={!!removeTarget}
+          title="Remove this candidate from your shortlist?"
+          confirmLabel="Remove"
+          onConfirm={() => removeTarget && remove(removeTarget)}
+          onCancel={() => setRemoveTarget(null)}
+        />
       </AppShell>
     </>
   );

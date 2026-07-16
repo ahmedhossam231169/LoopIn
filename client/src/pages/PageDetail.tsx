@@ -7,6 +7,7 @@ import { Building2, Rocket, Globe, Users, Package, FileText, ArrowLeft, Settings
 import { Composer } from "../components/Composer";
 import { PostCard } from "../components/PostCard";
 import { FriendPicker } from "../components/FriendPicker";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 const CATEGORY_ICON: Record<string, typeof Building2> = {
   Company: Building2, Project: Rocket, "Open Source": Globe, Community: Users, Product: Package,
@@ -41,6 +42,9 @@ export default function PageDetail() {
   const [followers, setFollowers] = useState<any[]>([]);
   const [newAdmin, setNewAdmin] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function openSettings() {
     if (!page) return;
@@ -53,12 +57,14 @@ export default function PageDetail() {
 
   async function deletePage() {
     if (!page) return;
-    if (!confirm(`Delete "${page.name}" permanently? All its posts will be deleted too. This can't be undone.`)) return;
+    setDeleting(true);
     try {
       await api(`/api/pages/${page.slug}`, { method: "DELETE" });
       window.location.href = "/pages";
     } catch (e: any) {
-      alert(e?.message ?? "Couldn't delete the page");
+      setError(e?.message ?? "Couldn't delete the page");
+      setDeleting(false);
+      setDeleteConfirmOpen(false);
     }
   }
 
@@ -235,7 +241,7 @@ export default function PageDetail() {
                 <div className="mt-5 border-t border-red-500/20 pt-4">
                   <h3 className="mb-2 text-sm font-semibold text-red-400">Danger zone</h3>
                   <button
-                    onClick={deletePage}
+                    onClick={() => setDeleteConfirmOpen(true)}
                     className="flex items-center gap-1.5 rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10"
                   >
                     <Trash2 size={14} /> Delete page permanently
@@ -289,6 +295,22 @@ export default function PageDetail() {
             )}
           </>
         )}
+
+        {error && (
+          <p role="alert" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+            {error}
+          </p>
+        )}
+
+        <ConfirmDialog
+          open={deleteConfirmOpen}
+          title={`Delete "${page?.name}" permanently?`}
+          description="All its posts will be deleted too. This can't be undone."
+          confirmLabel="Delete"
+          busy={deleting}
+          onConfirm={deletePage}
+          onCancel={() => setDeleteConfirmOpen(false)}
+        />
     </AppShell>
   );
 }

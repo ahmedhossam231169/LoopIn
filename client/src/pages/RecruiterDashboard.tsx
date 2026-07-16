@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import { AppShell } from "../components/AppShell";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
   Briefcase, Users, Clock, TrendingUp, Plus, X, Trash2, ExternalLink,
 } from "lucide-react";
@@ -172,10 +173,12 @@ export default function RecruiterDashboard() {
     await api(`/api/jobs/applications/${row.id}`, { method: "PATCH", body: JSON.stringify({ stage }) }).catch(() => load());
   }
 
+  const [removeTarget, setRemoveTarget] = useState<PipelineRow | null>(null);
+
   async function removeRow(row: PipelineRow) {
-    if (!window.confirm(`Remove ${row.candidate.displayName} from "${row.job.title}"?`)) return;
     setData((d) => d && ({ ...d, pipeline: d.pipeline.filter((r) => r.id !== row.id) }));
     await api(`/api/jobs/applications/${row.id}`, { method: "DELETE" }).catch(() => load());
+    setRemoveTarget(null);
   }
 
   const totalInPipeline = data ? Object.values(data.stageDistribution).reduce((a, b) => a + b, 0) : 0;
@@ -310,7 +313,7 @@ export default function RecruiterDashboard() {
                             <Link to={`/talent/${row.candidate.username}`} className="rounded-lg p-1.5 text-mist-400 hover:bg-ink-800 hover:text-brand-400" title="View candidate">
                               <ExternalLink size={15} />
                             </Link>
-                            <button onClick={() => removeRow(row)} className="rounded-lg p-1.5 text-mist-400 hover:bg-ink-800 hover:text-red-400" title="Remove from pipeline">
+                            <button onClick={() => setRemoveTarget(row)} className="rounded-lg p-1.5 text-mist-400 hover:bg-ink-800 hover:text-red-400" title="Remove from pipeline">
                               <Trash2 size={15} />
                             </button>
                           </div>
@@ -326,6 +329,14 @@ export default function RecruiterDashboard() {
       )}
 
       {showPost && <PostRoleModal onClose={() => setShowPost(false)} onCreated={load} />}
+
+      <ConfirmDialog
+        open={!!removeTarget}
+        title={`Remove ${removeTarget?.candidate.displayName} from "${removeTarget?.job.title}"?`}
+        confirmLabel="Remove"
+        onConfirm={() => removeTarget && removeRow(removeTarget)}
+        onCancel={() => setRemoveTarget(null)}
+      />
     </AppShell>
   );
 }
