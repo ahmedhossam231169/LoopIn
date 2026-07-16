@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { notify } from "../lib/notify.js";
 import { assertNotBlocked } from "../lib/blocks.js";
 import { findUserByUsername } from "../lib/users.js";
+import { broadcastProfileUpdate } from "../socket.js";
 
 export const friendsRouter = Router();
 
@@ -248,6 +249,8 @@ friendsRouter.post(
       await prisma.follow.delete({
         where: { followerId_followingId: { followerId: me, followingId: other.id } },
       });
+      const followers = await prisma.follow.count({ where: { followingId: other.id } });
+      broadcastProfileUpdate(other.username, { followers });
       return res.json({ ok: true, following: false });
     }
 
@@ -260,6 +263,9 @@ friendsRouter.post(
       message: `@${meUser?.username} started following you`,
       link: `/u/${meUser?.username}`,
     });
+
+    const followers = await prisma.follow.count({ where: { followingId: other.id } });
+    broadcastProfileUpdate(other.username, { followers });
 
     res.json({ ok: true, following: true });
   })

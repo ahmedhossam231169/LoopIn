@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { RelationActions } from "../components/RelationActions";
 import { ResumeQuickView } from "../components/ResumeQuickView";
+import { getSocket } from "../lib/socket";
 
 // [SECURITY] نتأكد إن الرابط http(s) قبل ما نحطه في href
 function isSafeHttpUrl(url: string | null | undefined): boolean {
@@ -91,6 +92,21 @@ export default function UserProfile() {
     api<{ ok: true; items: ActivityItem[] }>(`/api/profiles/${username}/activity`)
       .then((r) => setActivity(r.items))
       .catch(() => {});
+  }, [username]);
+
+  // عدد المتابعين بيتحدث لحظيًا (سواء أنا اللي تابعت/بطلت أتابع، أو حد تاني)
+  // من غير ما اليوزر يحتاج يعمل reload للصفحة
+  useEffect(() => {
+    if (!username) return;
+    const s = getSocket();
+    const onUpdate = (n: { username: string; followers?: number }) => {
+      if (n.username !== username || n.followers === undefined) return;
+      setFollowers(n.followers);
+    };
+    s.on("profile:update", onUpdate);
+    return () => {
+      s.off("profile:update", onUpdate);
+    };
   }, [username]);
 
   async function messageUser() {

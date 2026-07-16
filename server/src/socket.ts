@@ -46,6 +46,12 @@ export function broadcastPostUpdate(postId: string, patch: Record<string, unknow
   ioRef?.emit("post:update", { postId, ...patch });
 }
 
+// بث تحديث بروفايل (عدد المتابعين حاليًا) — عشان لو حد فاتح بروفايل شخص
+// وحد تابعه (حتى لو هو نفسه)، العدد يتغيّر لحظيًا من غير reload
+export function broadcastProfileUpdate(username: string, patch: Record<string, unknown>) {
+  ioRef?.emit("profile:update", { username, ...patch });
+}
+
 export function setupSocket(httpServer: HttpServer) {
   const io = new Server(httpServer, {
     cors: { origin: getAllowedOrigins() },
