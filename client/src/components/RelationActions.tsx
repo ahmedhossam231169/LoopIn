@@ -1,12 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { UserPlus, UserCheck, Clock, MoreHorizontal, Flag, Ban, CheckCircle2 } from "lucide-react";
 import { api } from "../lib/api";
-import type { FriendState, RelationStatus } from "../lib/types";
+import { useFriendStatus } from "../lib/friendStatus";
 
 export function RelationActions({ username }: { username: string }) {
-  const [state, setState] = useState<FriendState>("none");
-  const [following, setFollowing] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { friendState: state, following, loaded, setFriendState, setFollowing } = useFriendStatus(username);
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [reporting, setReporting] = useState(false);
@@ -17,28 +15,18 @@ export function RelationActions({ username }: { username: string }) {
   const [blocking, setBlocking] = useState(false);
   const [blocked, setBlocked] = useState(false);
 
-  useEffect(() => {
-    api<{ ok: true } & RelationStatus>(`/api/friends/status/${username}`)
-      .then((r) => {
-        setState(r.friendState);
-        setFollowing(r.following);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [username]);
-
   async function friendAction() {
     setBusy(true);
     try {
       if (state === "none") {
         await api("/api/friends/request", { method: "POST", body: JSON.stringify({ username }) });
-        setState("request_sent");
+        setFriendState("request_sent");
       } else if (state === "request_sent" || state === "friends") {
         await api(`/api/friends/${username}`, { method: "DELETE" });
-        setState("none");
+        setFriendState("none");
       } else if (state === "request_received") {
         await api("/api/friends/respond", { method: "POST", body: JSON.stringify({ username, accept: true }) });
-        setState("friends");
+        setFriendState("friends");
       }
     } finally {
       setBusy(false);
@@ -49,7 +37,7 @@ export function RelationActions({ username }: { username: string }) {
     setBusy(true);
     try {
       await api("/api/friends/respond", { method: "POST", body: JSON.stringify({ username, accept: false }) });
-      setState("none");
+      setFriendState("none");
     } finally {
       setBusy(false);
     }
@@ -69,7 +57,7 @@ export function RelationActions({ username }: { username: string }) {
     setBlocking(true);
     try {
       await api(`/api/moderation/block/${username}`, { method: "POST" });
-      setState("none");
+      setFriendState("none");
       setFollowing(false);
       setBlocked(true);
       setTimeout(() => {
@@ -98,7 +86,7 @@ export function RelationActions({ username }: { username: string }) {
     }
   }
 
-  if (loading) return null;
+  if (!loaded) return null;
 
   const friendIcon =
     state === "friends" ? <UserCheck size={15} />

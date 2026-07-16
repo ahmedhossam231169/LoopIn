@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { timeAgo, type Post, type Comment, type FriendState, type RelationStatus } from "../lib/types";
+import { useFriendStatus } from "../lib/friendStatus";
+import { timeAgo, type Post, type Comment } from "../lib/types";
 import { CodeBlock } from "./CodeBlock";
 import { Markdown } from "./Markdown";
 import { FriendPicker } from "./FriendPicker";
@@ -12,38 +13,21 @@ import { ConfirmDialog } from "./ConfirmDialog";
 // زرارين Follow / Add friend مصغّرين لصاحب البوست في هيدر الكارت.
 // بنجيب حالة العلاقة أول ما الكارت يظهر، وبنخفي الأزرار لحد ما توصل عشان مايبانش وميض.
 function PostAuthorActions({ username }: { username: string }) {
-  const [state, setState] = useState<FriendState>("none");
-  const [following, setFollowing] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const { friendState: state, following, loaded, setFriendState, setFollowing } = useFriendStatus(username);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    api<{ ok: true } & RelationStatus>(`/api/friends/status/${username}`)
-      .then((r) => {
-        if (!alive) return;
-        setState(r.friendState);
-        setFollowing(r.following);
-        setLoaded(true);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [username]);
 
   async function friendAction() {
     setBusy(true);
     try {
       if (state === "none") {
         await api("/api/friends/request", { method: "POST", body: JSON.stringify({ username }) });
-        setState("request_sent");
+        setFriendState("request_sent");
       } else if (state === "request_sent" || state === "friends") {
         await api(`/api/friends/${username}`, { method: "DELETE" });
-        setState("none");
+        setFriendState("none");
       } else if (state === "request_received") {
         await api("/api/friends/respond", { method: "POST", body: JSON.stringify({ username, accept: true }) });
-        setState("friends");
+        setFriendState("friends");
       }
     } finally {
       setBusy(false);
