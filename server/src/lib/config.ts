@@ -63,11 +63,16 @@ const schema = z
     SERVER_URL: httpUrl.optional(),
 
     // ---- OAuth (اختياري — بس لو حطيت واحد لازم تحط اللي معاه) ----
-    GITHUB_CLIENT_ID: z.string().min(1).optional(),
-    GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
-    GITHUB_TOKEN: z.string().min(1).optional(),
-    GOOGLE_CLIENT_ID: z.string().min(1).optional(),
-    GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+    // .trim() مش تجميل: الأسرار دي بتتنسخ بالإيد من لوحات جوجل/جيت هب وبتتلزق
+    // في لوحة Render، والنسخة بتجيب معاها مسافة أو سطر جديد في الآخر كتير.
+    // المسافة دي بتتبعت للـ provider جوا الطلب فيرفضه بـ invalid_client — وهو
+    // نفس الرد بالظبط اللي بيجي لو السر غلط أصلاً، فبتفضل تغيّر سر صح بسر صح
+    // والمشكلة مكانها. مفيش سر شرعي بيبدأ أو بينتهي بمسافة، فالتنضيف آمن.
+    GITHUB_CLIENT_ID: z.string().trim().min(1).optional(),
+    GITHUB_CLIENT_SECRET: z.string().trim().min(1).optional(),
+    GITHUB_TOKEN: z.string().trim().min(1).optional(),
+    GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
+    GOOGLE_CLIENT_SECRET: z.string().trim().min(1).optional(),
 
     // ---- SMTP (اختياري — من غيره إيميلات الاستعادة بتتطبع في الـ logs) ----
     SMTP_HOST: z.string().min(1).optional(),
