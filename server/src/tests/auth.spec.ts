@@ -1,4 +1,6 @@
-process.env.JWT_SECRET = "test-secret-0123456789";
+// 32 حرف على الأقل — lib/config.ts بيفرض ده على كل البيئات (dotenv مش بيدوس
+// على قيمة موجودة في process.env، فالقيمة دي هي اللي هتتقرا)
+process.env.JWT_SECRET = "test-secret-0123456789-padding-to-32-chars";
 import { registerSchema } from "../schemas/auth.js";
 
 async function main() {

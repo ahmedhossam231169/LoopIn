@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { config } from "./config.js";
 
 // ---------------------------------------------------------------
 // إرسال الإيميلات — بيشتغل بوضعين:
@@ -9,14 +10,13 @@ import nodemailer from "nodemailer";
 // المتغيرات المطلوبة: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
 // ---------------------------------------------------------------
 
-const smtpConfigured =
-  !!process.env.SMTP_HOST && !!process.env.SMTP_USER && !!process.env.SMTP_PASS;
-
-const transporter = smtpConfigured
+// config بيتأكد وقت التشغيل إن SMTP_HOST مش موجود من غير USER/PASS —
+// فمفيش حالة "متظبط نص ظبط" بتفشل بصمت وقت أول إيميل
+const transporter = config.hasSmtp
   ? nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT) || 587,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      host: config.SMTP_HOST,
+      port: config.SMTP_PORT,
+      auth: { user: config.SMTP_USER, pass: config.SMTP_PASS },
     })
   : null;
 
@@ -34,7 +34,7 @@ export async function sendEmail(to: string, subject: string, html: string) {
   }
 
   await transporter.sendMail({
-    from: process.env.SMTP_FROM || "DevConnect <no-reply@devconnect.app>",
+    from: config.SMTP_FROM,
     to,
     subject,
     html,

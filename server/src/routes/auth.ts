@@ -7,6 +7,7 @@ import { asyncHandler } from "../middleware/errorHandler.js";
 import { requireAuth } from "../middleware/auth.js";
 import { registerSchema, loginSchema } from "../schemas/auth.js";
 import { getAllowedOrigins } from "../lib/cors.js";
+import { config } from "../lib/config.js";
 import { authLimiter } from "../middleware/rateLimit.js";
 
 export const authRouter = Router();
@@ -28,10 +29,9 @@ const OAUTH_STATE_COOKIE = "dc_oauth_state";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 دقايق كافية لإتمام التدفق
 
 function signOAuthState(payload: string): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw Errors.internal("JWT_SECRET is not configured");
+  // config بيضمن وجوده وقت تشغيل السيرفر — مفيش داعي لفحص هنا
   // "oauth-state|" prefix عشان التوقيع ده مايتلبسش على أي استخدام تاني للسر
-  return crypto.createHmac("sha256", secret).update(`oauth-state|${payload}`).digest("hex");
+  return crypto.createHmac("sha256", config.JWT_SECRET).update(`oauth-state|${payload}`).digest("hex");
 }
 
 // الـ state بيشيل كمان "mode": يا "login" يا "link:<userId>" —
@@ -42,7 +42,7 @@ function issueOAuthState(res: Response, mode = "login"): string {
   const state = `${payload}.${signOAuthState(payload)}`;
   res.cookie(OAUTH_STATE_COOKIE, state, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: config.isProd,
     sameSite: "lax", // lax عشان الكوكي يتبعت مع الـ redirect الراجع من GitHub/Google
     maxAge: OAUTH_STATE_TTL_MS,
     path: "/api/auth",
@@ -222,7 +222,7 @@ authRouter.get(
 // محتاج GITHUB_CLIENT_ID و GITHUB_CLIENT_SECRET في الـ .env
 // ---------------------------------------------------------------
 authRouter.get("/github", (_req, res) => {
-  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientId = config.GITHUB_CLIENT_ID;
   if (!clientId) throw Errors.internal("GitHub OAuth is not configured");
 
   const params = new URLSearchParams({
@@ -241,7 +241,7 @@ authRouter.get("/github", (_req, res) => {
 // الـ state بيشيل userId موقّع بـ HMAC فالـ callback يعرف يربط مين.
 // ---------------------------------------------------------------
 authRouter.get("/github/connect-url", requireAuth, (req, res) => {
-  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientId = config.GITHUB_CLIENT_ID;
   if (!clientId) throw Errors.internal("GitHub OAuth is not configured");
 
   const params = new URLSearchParams({
@@ -272,8 +272,8 @@ authRouter.get(
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
-        client_id: process.env.GITHUB_CLIENT_ID,
-        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        client_id: config.GITHUB_CLIENT_ID,
+        client_secret: config.GITHUB_CLIENT_SECRET,
         code,
       }),
     });
@@ -452,13 +452,16 @@ authRouter.post(
 // 2) /google/callback → نبدل الـ code بتوكن، نجيب البيانات، login أو تسجيل جديد
 // محتاج GOOGLE_CLIENT_ID و GOOGLE_CLIENT_SECRET في الـ .env
 // ---------------------------------------------------------------
+// الـ callback URL لازم يطابق اللي مسجّل في Google Console بالحرف
+const googleRedirectUri = () => `${config.SERVER_URL ?? `http://localhost:${config.PORT}`}/api/auth/google/callback`;
+
 authRouter.get("/google", (_req, res) => {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientId = config.GOOGLE_CLIENT_ID;
   if (!clientId) throw Errors.internal("Google OAuth is not configured");
 
   const params = new URLSearchParams({
     client_id: clientId,
-    redirect_uri: `${process.env.SERVER_URL || "http://localhost:4000"}/api/auth/google/callback`,
+    redirect_uri: googleRedirectUri(),
     response_type: "code",
     scope: "openid email profile",
     state: issueOAuthState(res), // [SECURITY] CSRF protection
@@ -480,16 +483,22 @@ authRouter.get(
     const code = String(req.query.code ?? "");
     if (!code) throw Errors.badRequest("Missing OAuth code");
 
+    // قبل كده كان `?? ""` — يعني لو الإعداد ناقص كنا بنبعت client_id فاضي
+    // لـ Google ونستنى رد غامض. دلوقتي بنفشل بسبب واضح.
+    if (!config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET) {
+      throw Errors.internal("Google OAuth is not configured");
+    }
+
     // 1) بدل الـ code بـ access token
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID ?? "",
-        client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+        client_id: config.GOOGLE_CLIENT_ID,
+        client_secret: config.GOOGLE_CLIENT_SECRET,
         code,
         grant_type: "authorization_code",
-        redirect_uri: `${process.env.SERVER_URL || "http://localhost:4000"}/api/auth/google/callback`,
+        redirect_uri: googleRedirectUri(),
       }),
     });
     const tokenData = (await tokenRes.json()) as { access_token?: string };

@@ -1,4 +1,6 @@
-import "dotenv/config";
+// ⚠️ config لازم يكون أول import — بيحمّل الـ .env وبيتحقق من كل المتغيرات،
+// وبيوقف السيرفر فورًا لو في حاجة ناقصة أو غلط. أي import بيقرأ env لازم ييجي بعده.
+import { config } from "./lib/config.js";
 import { createServer } from "node:http";
 import express from "express";
 import cors from "cors";
@@ -23,11 +25,16 @@ import { getAllowedOrigins } from "./lib/cors.js";
 import { apiLimiter } from "./middleware/rateLimit.js";
 
 const app = express();
-const PORT = Number(process.env.PORT) || 4000;
+const PORT = config.PORT;
 
 // معظم منصات الاستضافة (Railway, Render, Vercel...) بتحط السيرفر ورا reverse proxy
-// من غير السطر ده، Express هياخد IP الـ proxy بدل IP المستخدم الحقيقي
-app.set("trust proxy", 1);
+// من غير السطر ده، Express هياخد IP الـ proxy بدل IP المستخدم الحقيقي.
+// [SECURITY BUG-06] القيمة بقت من الإعدادات مش ثابتة على 1: "trust proxy: 1"
+// معناها ثقة عمياء في أول X-Forwarded-For. لو التطبيق اتعرض من غير بروكسي
+// واحد بالظبط قدامه، أي حد يبعت الهيدر ده بقيم متغيرة يبقى "IP جديد" كل مرة
+// ويعدّي الـ rate limiting بالكامل (brute force على الباسوردات).
+// اضبط TRUST_PROXY حسب البنية الفعلية — شوف .env.example.
+app.set("trust proxy", config.TRUST_PROXY);
 
 // ---------- Global middleware ----------
 app.use(helmet());
@@ -45,7 +52,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 // [SECURITY] endpoint تجريبي — بيشتغل في التطوير بس، مالوش لازمة في الإنتاج
-if (process.env.NODE_ENV !== "production") {
+if (!config.isProd) {
   app.get(
     "/api/demo-error",
     asyncHandler(async () => {

@@ -8,7 +8,7 @@ Effort: **S** ≤1h · **M** ~half a day · **L** ~1–2 days
 | # | Phase | Task | Category | Priority | Effort | Status | Files affected |
 |---|---|---|---|---|---|---|---|
 | 1 | 2 | **Adopt a real migrations baseline.** ~~No `prisma/migrations/` exists~~ → created `0_init` (23 tables, 9 enums, 37 indexes, 33 FKs) incl. the BUG-01/BUG-05 security columns. Confirmed zero drift on the dev DB, then `migrate resolve --applied 0_init`. **Verified** on a throwaway Neon DB: `migrate deploy` on an empty database → byte-exact schema match. Also added `directUrl` (Neon pooler breaks `migrate`'s advisory locks) + `migration_lock.toml`. | DB | **Critical** | M | **Done** | `prisma/migrations/0_init/migration.sql`, `prisma/migrations/migration_lock.toml`, `prisma/schema.prisma`, `.env.example` |
-| 2 | 4 | **Env validation on boot.** Only `JWT_SECRET` fails fast. `CLIENT_URL` silently defaults to `localhost:5173` in prod → broken CORS + OAuth redirects to localhost. Add a Zod-validated `config.ts` that parses all env at startup and exits non-zero on failure; enforce `JWT_SECRET` length ≥32. | Prod/Security | **Critical** | S | Not started | `server/src/lib/config.ts` (new), `src/index.ts`, `src/lib/{jwt,cors,email}.ts`, `.env.example` |
+| 2 | 4 | **Env validation on boot.** Added Zod-validated `lib/config.ts`: parses all env once at startup, exits 1 listing every problem (names only, never values). Enforces `JWT_SECRET` ≥32; in prod requires `CLIENT_URL`/`SERVER_URL`/`DIRECT_DATABASE_URL`, rejects localhost, validates each CORS origin, requires OAuth pairs to be set together, and **requires ≥1 OAuth provider** (see #30). Treats `FOO=""` as unset. Migrated all 15 vars off scattered `process.env` reads. **Verified**: 9 boot scenarios. | Prod/Security | **Critical** | S | **Done** | `src/lib/config.ts` (new), `src/index.ts`, `src/lib/{jwt,cors,email,prisma}.ts`, `src/routes/{auth,profiles}.ts`, `src/socket.ts`, `.env.example` |
 | 3 | 1 | **BUG-06 — rate-limit bypass via spoofable `X-Forwarded-For`.** `trust proxy: 1` blindly trusts the first hop; if the app is ever reachable without exactly one proxy, rotating XFF headers defeat both limiters → unlimited credential brute-force. Make `TRUST_PROXY` explicit config, and add account+IP keyed login throttling. | Security | **Critical** | M | Not started | `src/index.ts`, `src/middleware/rateLimit.ts`, `src/lib/config.ts` |
 | 4 | 1 | **Rate limiters are in-memory.** `express-rate-limit` MemoryStore resets on every restart/deploy and is per-instance — the 10/15min auth limit becomes 10×N and evaporates on redeploy. Move to a Redis store. Depends on #9. | Security/Perf | **High** | S | Not started | `src/middleware/rateLimit.ts`, `src/lib/redis.ts` (new) |
 | 5 | 4 | **No test runner.** Specs are hand-rolled `tsx` scripts needing a live server + real DB, with no assertions and no exit code — unusable in CI, and nothing guards the fixed BUG-01…05 from regressing. Add Vitest + Supertest, port `security.spec.ts` first. | Prod | **High** | L | Not started | `server/package.json`, `vitest.config.ts` (new), `src/tests/**` |
@@ -35,13 +35,14 @@ Effort: **S** ≤1h · **M** ~half a day · **L** ~1–2 days
 | 26 | 4 | **Lint/format** — ESLint + Prettier, wired into CI (#14). | Prod | **Low** | S | Not started | `.eslintrc`, `.prettierrc` (new), `server/package.json` |
 | 27 | 4 | **Backups** — documented `pg_dump` schedule + a tested restore procedure. | Prod | **Low** | S | Not started | `DEPLOYMENT.md` |
 | 28 | 1 | **No account deletion / data export.** Cascade deletes are correctly declared throughout, but no endpoint exercises them — a GDPR-shaped gap if you take EU users. | Security | **Low** | M | Not started | `src/routes/profiles.ts` |
+| 30 | 4 | **⚠️ Register GitHub + Google OAuth apps for production (YOU must do this).** Found in Phase 1: email/password sign-up is hard-restricted to `@devconnect.com` (`schemas/auth.ts`, deliberate — commit `5a815d3`), so **OAuth is the only way the public can create an account**. Both client IDs are currently empty. Without them, launch day has *zero* public signup path. Needs OAuth apps whose callback URLs point at the production `SERVER_URL`. Config now refuses to boot in prod without ≥1 provider, so this can't be missed silently. | Prod | **Critical** | S | **Blocked — needs your action** | `.env` (prod), GitHub/Google consoles, `DEPLOYMENT.md` |
 | 29 | 1 | **`bcryptjs` → `bcrypt` or `argon2`.** `bcryptjs` is the pure-JS implementation: ~3–5× slower than native, so cost 12 costs *you* more CPU per login than it costs an attacker with native code. Cost 12 is adequate today; argon2id is the current recommendation. | Security | **Low** | S | Not started | `server/package.json`, `src/routes/auth.ts` |
 
 ## Summary by priority
 | Priority | Count |
 |---|---|
-| Critical | 3 |
+| Critical | 4 |
 | High | 10 |
 | Med | 10 |
 | Low | 6 |
-| **Total** | **29** |
+| **Total** | **30** |

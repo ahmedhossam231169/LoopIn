@@ -246,7 +246,10 @@ async function notifyOfflineRecipients(
     : message.body.trim()
       ? `: "${esc(message.body.slice(0, 80))}"`
       : "sent you an attachment";
-  const clientUrl = (process.env.CLIENT_URL || "").split(",")[0] || "";
+  // نفس مصدر الـ origins بتاع باقي المشروع — قبل كده كان بيقرأ CLIENT_URL
+  // مباشرة وبيرجّع "" لو مش موجود، فرابط "Open DevConnect" في الإيميل كان
+  // بيطلع مكسور (href="/messages") من غير ما حد ياخد باله
+  const clientUrl = getAllowedOrigins()[0];
 
   for (const r of recipients) {
     await sendEmail(

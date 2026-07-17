@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { updateProfileSchema } from "../schemas/profile.js";
 import { calculateReputation } from "../lib/reputation.js";
 import { isBlockedBetween } from "../lib/blocks.js";
+import { config } from "../lib/config.js";
 
 export const profilesRouter = Router();
 
@@ -263,7 +264,7 @@ async function ghJson(url: string): Promise<GhResult> {
   }
 
   const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
-  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  if (config.GITHUB_TOKEN) headers.Authorization = `Bearer ${config.GITHUB_TOKEN}`;
 
   try {
     const res = await fetch(url, { headers });
