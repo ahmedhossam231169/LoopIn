@@ -40,16 +40,95 @@ export function emitToUser(userId: string, event: string, payload: unknown) {
   ioRef?.to(`user:${userId}`).emit(event, payload);
 }
 
-// بث تحديث بوست (عدد لايكات/كومنتات/ريبوستات) لكل المتصلين — عشان أي حد
-// فاتح البوست في الفيد يشوف العدد يتغيّر لحظيًا من غير ما يعمل reload
-export function broadcastPostUpdate(postId: string, patch: Record<string, unknown>) {
-  ioRef?.emit("post:update", { postId, ...patch });
+// ---------------------------------------------------------------
+// [SECURITY BUG-10] البث لازم يحترم نفس قواعد الرؤية بتاعة الـ REST
+//
+// الاتنين دول كانوا بيستخدموا io.emit — يعني بيروحوا لكل المتصلين على السيرفر.
+// النتيجة إن أي حد فاتح التطبيق كان بيستقبل تحديثات بوستات الكوميونتيهات
+// الخاصة اللي مش عضو فيها (الـ id وعدّادات التفاعل). ده بالظبط الضمان اللي
+// BUG-02 اتصلّح عشانه في الـ REST، بس كان بيتسرّب من طبقة الـ real-time.
+//
+// الدوال دي fire-and-forget بشكل مقصود: البث ميزة تحسينية، لو فشل مايبوظش
+// الطلب الأصلي — بس بنلوج الخطأ عشان مايضيعش بصمت.
+// ---------------------------------------------------------------
+
+/**
+ * بث تحديث بوست (عدد لايكات/كومنتات/ريبوستات) للجمهور المسموح له يشوف البوست.
+ *
+ * @param communityId كوميونتي البوست، أو null لو بوست عادي في الفيد.
+ *   الباراميتر ده **إلزامي** عن قصد: أي call site جديد لازم يقرر الجمهور
+ *   صراحة بدل ما ينسى ويبث للكل.
+ */
+export function broadcastPostUpdate(
+  postId: string,
+  patch: Record<string, unknown>,
+  communityId: string | null
+) {
+  void emitPostUpdate(postId, patch, communityId).catch((e) =>
+    console.error("[broadcastPostUpdate]", e)
+  );
 }
 
-// بث تحديث بروفايل (عدد المتابعين حاليًا) — عشان لو حد فاتح بروفايل شخص
-// وحد تابعه (حتى لو هو نفسه)، العدد يتغيّر لحظيًا من غير reload
-export function broadcastProfileUpdate(username: string, patch: Record<string, unknown>) {
-  ioRef?.emit("profile:update", { username, ...patch });
+async function emitPostUpdate(postId: string, patch: Record<string, unknown>, communityId: string | null) {
+  const payload = { postId, ...patch };
+
+  // بوست في الفيد العام → مرئي لأي حد مسجّل دخول، فالبث للكل صح (ومن غير أي query)
+  if (!communityId) {
+    ioRef?.emit("post:update", payload);
+    return;
+  }
+
+  const community = await prisma.community.findUnique({
+    where: { id: communityId },
+    select: { isPrivate: true, members: { select: { userId: true } } },
+  });
+  if (!community) return;
+
+  // كوميونتي عام → أي حد يقدر يقرا بوستاته (نفس منطق communityVisibility)
+  if (!community.isPrivate) {
+    ioRef?.emit("post:update", payload);
+    return;
+  }
+
+  // كوميونتي خاص → الأعضاء بس. .to() بياخد أراي رومات وبيعمل dedupe لوحده،
+  // فالمستخدم المتصل من أكتر من جهاز بيوصله الحدث مرة واحدة.
+  const rooms = community.members.map((m) => `user:${m.userId}`);
+  if (rooms.length) ioRef?.to(rooms).emit("post:update", payload);
+}
+
+/**
+ * بث تحديث بروفايل (عدد المتابعين) لكل المتصلين ما عدا اللي بينهم وبين صاحب
+ * البروفايل حظر.
+ *
+ * @param profileOwnerId صاحب البروفايل — لازم عشان نعرف نستثني المحظورين.
+ */
+export function broadcastProfileUpdate(
+  username: string,
+  patch: Record<string, unknown>,
+  profileOwnerId: string
+) {
+  void emitProfileUpdate(username, patch, profileOwnerId).catch((e) =>
+    console.error("[broadcastProfileUpdate]", e)
+  );
+}
+
+async function emitProfileUpdate(username: string, patch: Record<string, unknown>, profileOwnerId: string) {
+  // [SECURITY BUG-04] اللي بينهم حظر مايشوفوش بعض: GET /api/profiles/:username
+  // بيرجّع 404 للمحظور. من غير الاستثناء ده كان هيستقبل نفس عدد المتابعين
+  // لحظيًا من السوكيت — نفس البيانات اللي المفروض متحجوبة عنه.
+  const blocks = await prisma.block.findMany({
+    where: { OR: [{ blockerId: profileOwnerId }, { blockedId: profileOwnerId }] },
+    select: { blockerId: true, blockedId: true },
+  });
+
+  const excluded = blocks.map((b) => (b.blockerId === profileOwnerId ? b.blockedId : b.blockerId));
+  const payload = { username, ...patch };
+
+  if (!excluded.length) {
+    ioRef?.emit("profile:update", payload);
+    return;
+  }
+  ioRef?.except(excluded.map((id) => `user:${id}`)).emit("profile:update", payload);
 }
 
 export function setupSocket(httpServer: HttpServer) {

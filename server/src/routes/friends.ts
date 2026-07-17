@@ -250,7 +250,7 @@ friendsRouter.post(
         where: { followerId_followingId: { followerId: me, followingId: other.id } },
       });
       const followers = await prisma.follow.count({ where: { followingId: other.id } });
-      broadcastProfileUpdate(other.username, { followers });
+      broadcastProfileUpdate(other.username, { followers }, other.id);
       return res.json({ ok: true, following: false });
     }
 
@@ -265,7 +265,7 @@ friendsRouter.post(
     });
 
     const followers = await prisma.follow.count({ where: { followingId: other.id } });
-    broadcastProfileUpdate(other.username, { followers });
+    broadcastProfileUpdate(other.username, { followers }, other.id);
 
     res.json({ ok: true, following: true });
   })

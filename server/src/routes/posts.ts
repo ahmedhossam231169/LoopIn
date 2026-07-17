@@ -252,7 +252,8 @@ postsRouter.post(
     // مايتفاعلش معاه غير أعضاؤه — نفس حماية الـ permalink
     const post = await prisma.post.findFirst({
       where: { id: postId, ...communityVisibility(userId) },
-      select: { id: true, authorId: true, title: true, body: true },
+      // communityId: بيحدد جمهور البث تحت — مش طلب زيادة، جزء من نفس الـ select
+      select: { id: true, authorId: true, title: true, body: true, communityId: true },
     });
     if (!post) throw Errors.notFound("Post");
     await assertNotBlocked(userId, post.authorId);
@@ -287,7 +288,7 @@ postsRouter.post(
 
     const likeCount = await prisma.like.count({ where: { postId } });
     const mine = await prisma.like.findUnique({ where: { userId_postId: { userId, postId } } });
-    broadcastPostUpdate(postId, { likeCount });
+    broadcastPostUpdate(postId, { likeCount }, post.communityId);
     res.json({ ok: true, liked: !!mine, myReaction: mine?.type ?? null, likeCount });
   })
 );
@@ -308,7 +309,8 @@ postsRouter.post(
     // مايتفاعلش معاه غير أعضاؤه — نفس حماية الـ permalink
     const post = await prisma.post.findFirst({
       where: { id: postId, ...communityVisibility(userId) },
-      select: { id: true, authorId: true, title: true, body: true },
+      // communityId: بيحدد جمهور البث تحت
+      select: { id: true, authorId: true, title: true, body: true, communityId: true },
     });
     if (!post) throw Errors.notFound("Post");
     await assertNotBlocked(userId, post.authorId);
@@ -335,7 +337,7 @@ postsRouter.post(
 
     const repostCount = await prisma.repost.count({ where: { postId } });
     const mine = await prisma.repost.findUnique({ where: { userId_postId: { userId, postId } } });
-    broadcastPostUpdate(postId, { repostCount });
+    broadcastPostUpdate(postId, { repostCount }, post.communityId);
     res.json({ ok: true, reposted: !!mine, myRepostComment: mine?.comment ?? null, repostCount });
   })
 );
@@ -410,7 +412,8 @@ postsRouter.post(
     // إلا لأعضائه — نفس حماية الـ permalink
     const post = await prisma.post.findFirst({
       where: { id: postId, ...communityVisibility(req.user!.userId) },
-      select: { id: true, authorId: true, title: true, body: true },
+      // communityId: بيحدد جمهور البث تحت
+      select: { id: true, authorId: true, title: true, body: true, communityId: true },
     });
     if (!post) throw Errors.notFound("Post");
     await assertNotBlocked(req.user!.userId, post.authorId);
@@ -439,7 +442,7 @@ postsRouter.post(
     });
 
     const commentCount = await prisma.comment.count({ where: { postId } });
-    broadcastPostUpdate(postId, { commentCount });
+    broadcastPostUpdate(postId, { commentCount }, post.communityId);
 
     res.status(201).json({ ok: true, comment });
   })
@@ -494,7 +497,8 @@ postsRouter.delete(
     const commentId = req.params.commentId!;
     const existing = await prisma.comment.findUnique({
       where: { id: commentId },
-      select: { authorId: true, postId: true },
+      // post.communityId: بيحدد جمهور البث تحت — join مع نفس الطلب مش طلب زيادة
+      select: { authorId: true, postId: true, post: { select: { communityId: true } } },
     });
     if (!existing || existing.postId !== req.params.id!) throw Errors.notFound("Comment");
     if (existing.authorId !== req.user!.userId) {
@@ -502,7 +506,7 @@ postsRouter.delete(
     }
     await prisma.comment.delete({ where: { id: commentId } });
     const commentCount = await prisma.comment.count({ where: { postId: existing.postId } });
-    broadcastPostUpdate(existing.postId, { commentCount });
+    broadcastPostUpdate(existing.postId, { commentCount }, existing.post.communityId);
     res.json({ ok: true });
   })
 );
