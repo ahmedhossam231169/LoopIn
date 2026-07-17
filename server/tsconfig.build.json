@@ -1,0 +1,16 @@
+// إعدادات بناء الإنتاج — نفس tsconfig.json بس من غير التستات.
+//
+// ليه منفصل:
+// tsconfig.json بيشمل "src" كله، وده صح للـ typecheck (عايزين التستات
+// تتفحص برضه). بس بناء الإنتاج كان بيكومبايل src/tests كمان، فكان:
+//   1) بيحط ملفات تستات في dist/ — كود مالوش لازمة في صورة الإنتاج
+//   2) بيخلي البناء يعتمد على socket.io-client (devDependency) عشان
+//      التستات بس — وده كان بيفشل البناء على Render
+//
+// npm run build بيستخدم الملف ده. npm run typecheck لسه بيستخدم tsconfig.json
+// عشان التستات تفضل متفحوصة محليًا وفي الـ CI.
+{
+  "extends": "./tsconfig.json",
+  "include": ["src"],
+  "exclude": ["src/tests", "dist", "node_modules"]
+}

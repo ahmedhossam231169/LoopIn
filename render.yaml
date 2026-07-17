@@ -33,9 +33,16 @@ services:
     # npm ci بدل npm install: بيلتزم بالـ package-lock بالظبط، فالبناء
     # بيبقى متكرر ومافيش نسخة بتتغير من تحتك.
     # postinstall في package.json بيشغّل prisma generate تلقائيًا.
+    #
+    # ⚠️ --include=dev إلزامي: npm بيتجاهل الـ devDependencies تلقائيًا لما
+    # NODE_ENV=production (وإحنا حاطينها تحت). والبناء نفسه محتاج typescript
+    # و @types/* — وكلهم devDependencies. من غير الفلاج ده البناء بيفشل بـ
+    # "Could not find a declaration file for module 'express'". ده بيأثر على
+    # البناء بس؛ وقت التشغيل بيفضل NODE_ENV=production عادي.
+    #
     # migrate deploy هنا لأن preDeployCommand مش متاح في الخطة المجانية —
     # وهو idempotent فمافيش ضرر إنه يشتغل كل مرة.
-    buildCommand: npm ci && npm run build && npx prisma migrate deploy
+    buildCommand: npm ci --include=dev && npm run build && npx prisma migrate deploy
     startCommand: npm start
 
     # Render بيستخدمه عشان يعرف الـ deploy نجح ولا لأ، وبيوقف الترافيك
