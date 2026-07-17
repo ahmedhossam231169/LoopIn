@@ -15,9 +15,11 @@
 # ---------------------------------------------------------------
 services:
   - type: web
-    # ⬇️ غيّر الاسم ده للاسم الجديد اللي عايزه. ده اللي بيحدد الرابط:
-    #    https://<name>.onrender.com — واللي لازم يتحط في SERVER_URL تحت،
-    #    وفي callbacks بتاعت GitHub/Google.
+    # ⬇️ غيّر الاسم ده للاسم الجديد اللي عايزه.
+    # ⚠️ الاسم ده مش هو الرابط بالضرورة: لو محجوز، Render بيضيف لاحقة عشوائية
+    #    (الاسم هنا loopin-api والرابط الفعلي loopin-api-9u88.onrender.com).
+    #    خد الرابط من لوج الـ deploy عند "Available at your primary URL"، وحطه
+    #    في SERVER_URL تحت وفي callbacks بتاعت GitHub/Google — متبنيهوش من الاسم.
     name: loopin-api
     runtime: node
     plan: free
@@ -92,7 +94,7 @@ services:
       # غلط هنا = الفرونت كله بياخد CORS errors.
       - key: CLIENT_URL
         sync: false
-      # رابط السيرفس دي نفسها (https://<name>.onrender.com).
+      # رابط السيرفس دي نفسها — من لوج الـ deploy، مش من الاسم فوق (شوف التحذير هناك).
       # لازم يطابق الـ callback المسجّل في Google بالحرف.
       - key: SERVER_URL
         sync: false
