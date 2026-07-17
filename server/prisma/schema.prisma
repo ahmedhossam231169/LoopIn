@@ -85,6 +85,7 @@ model User {
   blocksReceived Block[]  @relation("BlocksReceived")
   reportsMade     Report[] @relation("ReportsMade")
   reportsReviewed Report[] @relation("ReportsReviewed")
+  refreshTokens   RefreshToken[]
   shortlistsMade ShortlistEntry[] @relation("ShortlistsMade")
   shortlistedAs  ShortlistEntry[] @relation("ShortlistedAs")
   jobsPosted     Job[]            @relation("JobsPosted")
@@ -414,6 +415,37 @@ model Block {
 }
 
 // بلاغات — مراجعة يدوية لاحقًا (بوست أو مستخدم)
+// جلسة واحدة = جهاز واحد. الـ access token بقى عمره 15 دقيقة، والتوكن ده هو
+// اللي بيجدّده. وجوده في الداتابيز هو اللي بيخلي تسجيل الخروج الحقيقي وإبطال
+// جهاز بعينه ممكنين — الـ JWT لوحده مايتلغيش قبل ما يخلص.
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  // بنخزن SHA-256 مش التوكن نفسه — نفس منطق resetTokenHash: لو الداتابيز
+  // اتسربت، اللي فيها مايفتحش جلسات. SHA-256 كفاية هنا (مش bcrypt) لأن
+  // التوكن نفسه 32 بايت عشوائية، مفيش حاجة تتخمّن أو تتكسر بـ dictionary.
+  tokenHash String   @unique
+  // كل جهاز بياخد familyId ثابت، والدوران بينشئ صف جديد بنفس الـ id ده.
+  // كشف إعادة الاستخدام بيبطّل العيلة كلها مرة واحدة.
+  familyId  String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  // اتملى = التوكن ده اتصرف فيه خلاص. لو حد جه يستخدمه تاني بعد كده يبقى
+  // نسخة مسروقة (أو عميل باظ) — والرد إن العيلة كلها تتقفل.
+  rotatedAt DateTime?
+  revokedAt DateTime?
+  // للمستخدم يشوف "إيه الأجهزة الداخلة على حسابي" — مش لأي قرار أمني
+  userAgent String?  @db.VarChar(300)
+  ip        String?  @db.VarChar(64)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([familyId])
+  // تنضيف الصفوف المنتهية
+  @@index([expiresAt])
+}
+
 model Report {
   id             String   @id @default(cuid())
   reporterId     String

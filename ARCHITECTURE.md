@@ -37,7 +37,8 @@ No `prisma/migrations/`, no test runner, no Dockerfile, no CI config, no Redis, 
 
 ```
 Browser (React SPA, Vite)
-   │  Authorization: Bearer <JWT>          ← token in localStorage
+   │  Authorization: Bearer <JWT>          ← 15m access token, in memory only
+   │  Cookie: devconnect_refresh           ← httpOnly, /api/auth, 30d, rotating
    ▼
 Express app  (server/src/index.ts)
    │
@@ -61,7 +62,11 @@ Socket.io  (server/src/socket.ts) — same HTTP server, same port
    └─ io.use(handshake auth) → verifyToken + tokenVersion check → socket.join(`user:{id}`)
 ```
 
-**Per-request auth path** (`middleware/auth.ts`): verify JWT signature → `SELECT tokenVersion FROM User WHERE id = ?` → compare against the token's `tokenVersion` → attach `req.user`. This costs **one indexed DB read on every authenticated request and socket handshake**; it is the mechanism that makes password-reset session revocation instant.
+**Per-request auth path** (`middleware/auth.ts`): verify JWT signature → `SELECT tokenVersion, isAdmin FROM User WHERE id = ?` → compare against the token's `tokenVersion` → attach `req.user` + `req.isAdmin`. This costs **one indexed DB read on every authenticated request and socket handshake**; it is what makes password-reset revocation and admin-revocation instant.
+
+**Session model** (`lib/refreshTokens.ts`, task #8): a 15-minute access token the page holds **in memory only**, plus a 30-day refresh token stored **hashed** in `RefreshToken` and delivered as an httpOnly cookie scoped to `/api/auth`. Each device is a `familyId`; every refresh rotates the token within its family. Replaying an already-rotated token means two copies exist, so the whole family is revoked — a stolen token buys minutes, not a month. A 15s grace window keeps two tabs refreshing at once from tripping that. `client/src/lib/api.ts` refreshes and retries once on any 401, so the short lifetime is invisible to the rest of the app.
+
+⚠️ The refresh cookie needs the API to be **same-site with the client** to survive Safari/Chrome third-party cookie blocking — see task #31.
 
 **Error contract** (uniform across REST): `{ ok: false, error: { code, message, details? } }`. Success: `{ ok: true, ... }`.
 
@@ -71,13 +76,18 @@ Socket.io  (server/src/socket.ts) — same HTTP server, same port
 
 ## 3. API endpoint inventory
 
-72 routes. Auth column: **Public** = no token; **Auth** = valid JWT; **Recruiter** = JWT + `role === RECRUITER`; **Admin** = JWT + `isAdmin`. All non-public routes additionally revalidate `tokenVersion` against the DB.
+76 routes. Auth column: **Public** = no token; **Auth** = valid JWT; **Recruiter** = JWT + `role === RECRUITER`; **Admin** = JWT + `isAdmin`. All non-public routes additionally revalidate `tokenVersion` against the DB.
 
 ### Auth — `/api/auth` (`routes/auth.ts`)
 | Method | Path | Auth | Input | Output |
 |---|---|---|---|---|
-| POST | `/register` | Public + authLimiter | `{email, username, password, displayName, role, yearsExperience, resumeUrl?}` | 201 `{ok, user, token}` |
-| POST | `/login` | Public + authLimiter | `{identifier, password, rememberMe?}` | `{ok, user, token}` (7d / 30d) |
+| POST | `/register` | Public + authLimiter | `{email, username, password, displayName, role, yearsExperience, resumeUrl?}` | 201 `{ok, user, token}` + refresh cookie |
+| POST | `/login` | Public + authLimiter | `{identifier, password, rememberMe?}` | `{ok, user, token}` (15m) + refresh cookie. `rememberMe` is now ignored — every session is 30d, extended on each refresh |
+| POST | `/refresh` | Public + cookie | — | `{ok, token}`, rotates the cookie. `409 REFRESH_RETRY` = another tab won the race, retry |
+| POST | `/logout` | Public + cookie | — | Revokes this device's session server-side |
+| POST | `/logout-all` | Auth | — | Revokes every session **and** bumps `tokenVersion` so live access tokens die immediately |
+| GET | `/sessions` | Auth | — | `{ok, sessions[]}` — one per device, `current` flagged |
+| DELETE | `/sessions/:id` | Auth | — | Signs out one device (ownership checked) |
 | GET | `/me` | Auth | — | `{ok, user}` |
 | GET | `/github` | Public | — | 302 → GitHub consent (signed `state`) |
 | GET | `/github/connect-url` | Auth | — | `{ok, url}` (state = `link:<userId>`) |
