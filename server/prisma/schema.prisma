@@ -8,7 +8,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // التطبيق بيتكلم مع الداتابيز من خلال الـ pooler (PgBouncer) — ده اللي بيتحمل
+  // عدد الاتصالات الكبير في الإنتاج
   url      = env("DATABASE_URL")
+  // الميجريشنز لازم اتصال مباشر (من غير pooler): PgBouncer في transaction mode
+  // بيكسر الـ advisory locks اللي prisma migrate بيعتمد عليها، وممكن يعلّق الـ deploy.
+  // على Neon: نفس الرابط بالظبط بس من غير "-pooler" في اسم الهوست.
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 // ---------- Enums ----------
